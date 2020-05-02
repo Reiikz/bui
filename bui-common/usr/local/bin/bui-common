@@ -172,13 +172,6 @@ while [ $# -gt 0 ]; do
             echo "$(reverseIP $1 $2 "$spec")"
             exit 0
         ;;
-
-        test)
-            declare -A FIELDS
-            splitByZones $2
-            echo "${FIELDS[@]}"
-            exit 0
-        ;;
         
         format|-f|--format)
             shift

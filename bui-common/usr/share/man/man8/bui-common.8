@@ -1,0 +1,39 @@
+./" this is the man page for Bind User Interface - Common
+.TH bui-common "01/05/2020" "0.0.0" "bui-common man page"
+
+.SH NAME
+bui-common - low level command for bui and bui-cfgh
+
+.SH DESCRIPTION
+    This is a low level command you should not be using this, use man bui
+
+.SH COMMANDS
+
+.IP format|--format|-f
+    If two arguments are provided it will try to gess what the user is trying to do.
+    Possible gesses are: adding an A record, adding a PTR record, adding a CNAME record.
+    If three arguments are provided it will just indent the info
+
+.IP reverse-ip <ip> <netmask> [host|network]
+    It will spit the reversed IP, if you specify nothing it will give you only the network id part
+    if you specify host it will give you the host id part only.
+
+.IP verifyIPV4 <ipv4>[/netmask]
+    It checks weather or not the specified IP is valid.
+    you can optionally specify the netmask: 192.168.0.1/24
+    you should use this command as "source" and declare an associative array to which save the data
+    "(declare -A IPV4)".
+    If the IP isn't valid an error variable called ERR will be set if the variable is not set the IP is valid
+    The ip data will be saved as follows:
+    ${IPV4[ip]} containing only the ip
+    ${IPV4[mask]} containing only the netmassk
+    ${IPV4[0]} containing only the field 1
+    ${IPV4[1]} containing only the field 2
+    ${IPV4[2]} containing only the field 3
+    ${IPV4[3]} containing only the field 4
+
+.IP <name|type|target> parse-record <record>
+    Used only for A and CNAME records, it returns de specified part of the record.
+    the type if is type specified.
+    the name if is name specified.
+    the target if is target specified. Being what the record points to.

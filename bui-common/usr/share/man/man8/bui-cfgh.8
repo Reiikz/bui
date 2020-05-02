@@ -2,7 +2,7 @@
 .TH bui-cfgh "01/05/2020" "0.0.0" "bui-cfgh man page"
 
 .SH NAME
-bui-cfgh - low level command for handlign bind9 configuration
+bui-cfgh - low level command for handleing bind9 configuration
 
 .SH DESCRIPTION
     This is a low level command you should not be using this, use man bui
@@ -10,4 +10,61 @@ bui-cfgh - low level command for handlign bind9 configuration
 .SH COMMANDS
 
 .IP addzone
-    As the name sugests it adds an authority zone
+    As the name sugests it adds an authority zone.
+    This option expects the folloing data on the extact same order
+    <zone name> <dns server ip> <TTL> <refresh> <retry> <expire> <network> <netmask> <responsable> <negative cache ttl>
+    the only required data are zone name and dns server ip, the rest are optional (the script will use default data if missing)
+    network refers to the network id of the authority zone, it is used to handle the reverse DNS.
+    netmask refers to the netmask of the authority zone, it is used to handle the reverse DNS.
+
+.IP rzone
+    As the name sugests this option deletes an authority zone
+    use: rzone <zone name>
+
+.IP addrecord
+    This command adds a DNS record to the specified authority zone.
+    Use: addrecord com "ex IN CNAME example.com."
+    example: bui-cfgh addrecord com "$(bui-common format ex example.com)"
+
+.IP rrecord
+    This command removes a DNS record to the specified authority zone.
+    Use: rrecord com "ex IN CNAME example.com."
+    example: bui-cfgh rrecord com "$(bui-common format ex example.com)"
+
+.IP addr-record
+    This command adds a DNS reverse record to the specified authority zone.
+    Use: addr-record com "84 IN PTR example.com"
+    example: bui-cfgh addr-record com "$(bui-common format 192.168.0.84 example.com)"
+
+.IP rr-record
+    This command removes a DNS reverse record to the specified authority zone.
+    Use: rr-record com "84 IN PTR example.com"
+    example: bui-cfgh rr-record com "$(bui-common format 192.168.0.84 example.com)"
+
+.IP autoreverse
+    This command auto-generates the reverse records for all the A and CNAME registers
+    of a given authority zone, if nothing or map is specified after the authority zone it will
+    include CNAME records on the reversing.
+    use: autoreverse com [map|anything]
+    example: autoreverse com map # will autoreverse all A and CNAME records
+    example: autoreverse com # will autoreverse all A and CNAME records
+    example: autoreverse com no # will autoreverse all A records
+
+.IP de-autoreverse
+    This command will remove all reverse records for a given zone.
+    use: de-autoreverse <zone>
+    example: de-autoreverse com # will remvoe all reverse records from com
+
+.SH FILES
+
+.IP /etc/bui/zones.sh
+    Contains authority zones, dns records and its configurations.
+
+.IP /etc/bui/bindb-defaults.sh
+    Script with default values, you should change them here if you want
+
+.IP /etc/bui/zone-db.sample
+    Sample database header
+
+.IP /etc/bui/zone-config.sample
+    Sample database configuration
