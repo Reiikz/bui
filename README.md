@@ -11,3 +11,4 @@
 #### Disadvantages:
 - Duplicates DNS database information as well as settings
 - Slow for large databases.
+- Tends to rewrite files on removal operations
