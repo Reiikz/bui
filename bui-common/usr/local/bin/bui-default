@@ -1,0 +1,28 @@
+#!/bin/bash
+
+TTL=604800
+SERIAL=0
+REFRESH=604800
+RETRY=86400
+EXPIRE=2419200
+NEGATIVE_CACHE_TTL=604800
+NETWORK="192.168.0.0"
+NETMASK="24"
+RESPONSABLE="root"
+
+if ! source /etc/bui/bindb-defaults.sh 2> /dev/null; then
+    echo "warning no internal default config bypass"
+    echo "/etc/dummy-bind9-configurator/bindb-defaults.sh < that script should exist for you to configure defualt values"
+    echo "to get rid of this message create a blank file instead"
+fi
+
+[ "$1" == "ttl" ] && echo $TTL
+[ "$1" == "serial" ] && echo $SERIAL
+[ "$1" == "refresh" ] && echo $REFRESH
+[ "$1" == "retry" ] && echo $RETRY
+[ "$1" == "expire" ] && echo $EXPIRE
+[ "$1" == "ncttl" ] && echo $NEGATIVE_CACHE_TTL
+[ "$1" == "network" ] && echo $NETWORK
+[ "$1" == "netmask" ] && echo $NETMASK
+[ "$1" == "responsable" ] && echo $RESPONSABLE
+[ "$1" == "help" ] || [ $# -eq 0 ] && echo "this script should not be called by the user"

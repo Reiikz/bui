@@ -1,0 +1,443 @@
+#!/bin/bash
+
+#CONFIG_FOLDER=/etc/dummy-bind9-configurator
+CONFIG_FOLDER=/etc/bui
+SAMPLE_CONFIG=$CONFIG_FOLDER/zone-config.sample
+R_SAMPLE_CONFIG=$CONFIG_FOLDER/r-zone-config.sample
+ZONES=$CONFIG_FOLDER/zones.sh
+SAMPLE_DATABASE=$CONFIG_FOLDER/zone-db.sample
+NAMED_LOCAL=/etc/bind/named.conf.local
+DB_FOLDER=/etc/bind/zones
+RESOLV=/etc/resolv.conf
+
+function configHeader {
+    printf "#!/bin/bash\ndeclare -A zones\ndeclare -A zl\n" > $ZONES
+}
+
+function zoneConfig {
+    if ! sampleConfig="$(cat $SAMPLE_CONFIG 2> /dev/null)"; then
+        echo "failed to read $SAMPLE_CONFIG"
+        exit 1
+    fi
+    sampleConfig="$( echo "$sampleConfig" | sed "s/\%ZONE_NAME\%/$1/g" )"
+    [ -z "$UPDATE_CALL" ] && sampleConfig="$( echo "$sampleConfig" | sed 's/\"/\\\"/g' )"
+    echo "$sampleConfig"
+}
+
+function reverseZoneConfig {
+    if ! sampleConfig="$(cat $SAMPLE_CONFIG 2> /dev/null)"; then
+        echo "failed to read $SAMPLE_CONFIG"
+        exit 1
+    fi
+    sampleConfig="$( echo "$sampleConfig" | sed "s/\%ZONE_NAME\%/$1/g" )"
+    [ -z "$UPDATE_CALL" ] && sampleConfig="$( echo "$sampleConfig" | sed 's/\"/\\\"/g' )"
+    echo "$sampleConfig"
+}
+
+
+function reverseZoneString {
+    [ $2 -eq 0 ] && echo "in-addr.arpa"
+    [ $2 -ne 0 ] && echo "$(bui-common reverse-ip $1 $2 network).in-addr.arpa"
+}
+
+function incrementSerial {
+    serial="$(grep -E ".*; Serial" $1)"
+    serial="$(sed -E "s/[^0-9]//g" <<< $serial)"
+    serial=$(($serial+1))
+    echo "$(sed -E "s/.*; Serial/             $serial     ; Serial/g" $1)" > $1
+}
+
+function writeDatabaseHeader {
+    if ! blankDB="$(cat $SAMPLE_DATABASE 2> /dev/null)"; then
+        echo "Could not read $SAMPLE_DATABASE"
+        exit 1
+    fi
+    [ -z $2 ] && db_file=$DB_FOLDER/$1.db || db_file="$DB_FOLDER/$2.db"
+    [ ! -e "$DB_FOLDER" ] && mkdir -p $DB_FOLDER
+    
+    if [ -e $db_file ]; then
+        db="$(cat $db_file)"
+        db="$(sed -E "s/[$]TTL.*\d*/\$TTL             ${zones[$1[ttl]]}/g" <<< $db)"
+        db="$(sed -E "s/.*; Retry/             ${zones[$1[retry]]}     ; Retry/g" <<< $db)"
+        db="$(sed -E "s/.*; Expire/             ${zones[$1[expire]]}   ; Expire/g" <<< $db)"
+        db="$(sed -E "s/.*; Refresh/             ${zones[$1[refresh]]}    ; Refresh/g" <<< $db)"
+        db="$(sed -E "s/.*; Negative Cache TTL/             ${zones[$1[ncttl]]}   ); Negative Cache TTL/g" <<< $db)"
+        if [ -z $2 ]; then
+            db="$(sed -E "s/\@.*IN.*SOA.*\..*\(/@	IN	SOA	${zones[$1[responsable]]}.$1.(/g" <<< $db)"
+        else
+            db="$(sed -E "s/\@.*IN.*SOA.*\..*\(/@	IN	SOA	${zones[$1[r-responsable]]}.$1.(/g" <<< $db)"
+        fi
+        echo "$db" > $db_file
+    else
+        blankDB="$( echo "$blankDB" | sed "s/\%zone\%/$1/g" )"
+        blankDB="$( echo "$blankDB" | sed "s/\%serial\%/0/g" )"
+        blankDB="$( echo "$blankDB" | sed "s/\%refresh\%/${zones[$1[refresh]]}/g" )"
+        blankDB="$( echo "$blankDB" | sed "s/\%retry\%/${zones[$1[retry]]}/g" )"
+        blankDB="$( echo "$blankDB" | sed "s/\%expire\%/${zones[$1[expire]]}/g" )"
+        blankDB="$( echo "$blankDB" | sed "s/\%ttl\%/${zones[$1[ttl]]}/g" )"
+        blankDB="$( echo "$blankDB" | sed "s/\%responsable\%/${zones[$1[responsable]]}/g" )"
+        blankDB="$( echo "$blankDB" | sed "s/\%negative_cache_ttl\%/${zones[$1[ncttl]]}/g" )"
+        echo "$blankDB" > $db_file
+    fi
+}
+
+function save {
+    echo -n "saving"
+    i=$((${#zl[@]} - 1))
+    configHeader
+    for zone in ${zl[@]}; do
+        echo "#----------$zone----------|||||||||||||||||||||||||||||" >> $ZONES
+        echo zl[$i]="\"$zone\"" >> $ZONES
+        i=$(($i-1))
+        #echo "declare -A zones[$zone]" >> $ZONES
+
+        [ -z "${zones[$zone[network]]}" ] && zones[$zone[network]]="$(bui-default network)"
+        #[ -z "${zones[$zone[config]]}" ] && zones[$zone[config]]=$(zoneConfig $zone)
+        #[ -z "${zones[$zone[r-config]]}" ] && zones[$zone[r-config]]=
+        [ -z "${zones[$zone[ttl]]}" ] && zones[$zone[ttl]]="$(bui-default ttl)"
+        [ -z "${zones[$zone[ncttl]]}" ] && zones[$zone[ncttl]]="$(bui-default ncttl)"
+        [ -z "${zones[$zone[serial]]}" ] && zones[$zone[serial]]="$(bui-default serial)"
+        [ -z "${zones[$zone[refresh]]}" ] && zones[$zone[refresh]]="$(bui-default refresh)"
+        [ -z "${zones[$zone[retry]]}" ] && zones[$zone[retry]]="$(bui-default retry)"
+        [ -z "${zones[$zone[expire]]}" ] && zones[$zone[expire]]="$(bui-default expire)"
+        [ -z "${zones[$zone[records]]}" ] && zones[$zone[records]]=0
+        [ -z "${zones[$zone[r-records]]}" ] && zones[$zone[r-records]]=0
+        [ -z "${zones[$zone[netmask]]}" ] && zones[$zone[netmask]]="$(bui-default netmask)"
+        [ -z "${zones[$zone[responsable]]}" ] && zones[$zone[responsable]]="$(bui-default responsable)"
+        [ -z "${zones[$zone[r-responsable]]}" ] && zones[$zone[r-responsable]]="$(bui-default responsable)"
+        
+        echo "zones[$zone[config]]=\"$(zoneConfig $zone)\"" >> $ZONES
+        echo "zones[$zone[r-config]]=\"$(reverseZoneString ${zones[$zone[network]]} ${zones[$zone[netmask]]} )\"" >> $ZONES
+
+        echo "zones[$zone[ttl]]=\"${zones[$zone[ttl]]}\"" >> $ZONES
+        echo "zones[$zone[ncttl]]=\"${zones[$zone[ncttl]]}\"" >> $ZONES
+        echo "zones[$zone[serial]]=\"${zones[$zone[serial]]}\"" >> $ZONES
+        echo "zones[$zone[refresh]]=\"${zones[$zone[refresh]]}\"" >> $ZONES
+        echo "zones[$zone[retry]]=\"${zones[$zone[retry]]}\"" >> $ZONES
+        echo "zones[$zone[expire]]=\"${zones[$zone[expire]]}\"" >> $ZONES
+        echo "zones[$zone[network]]=\"${zones[$zone[network]]}\"" >> $ZONES
+        echo "zones[$zone[netmask]]=\"${zones[$zone[netmask]]}\"" >> $ZONES
+        echo "zones[$zone[responsable]]=\"${zones[$zone[responsable]]}\"" >> $ZONES
+        echo "zones[$zone[r-responsable]]=\"${zones[$zone[r-responsable]]}\"" >> $ZONES
+        echo "zones[$zone[ns1]]=\"${zones[$zone[ns1]]}\"" >> $ZONES
+        
+        if [ ${zones[$zone[records]]} -gt 0 ]; then
+            echo "#------- records" >> $ZONES
+            offset=0
+            for j in $(seq 0 $((${zones[$zone[records]]}-1)) ); do
+                if [ "${zones[$j-$zone]}" != "" ]; then
+                    echo "zones[$(($j-$offset))-$zone]=\"${zones[$j-$zone]}\"" >> $ZONES
+                else
+                    zones[$zone[records]]=$((${zones[$zone[records]]}-1))
+                    offset=$(($offset+1))
+                fi
+                echo -n "-"
+            done
+        fi
+        
+        if [ ${zones[$zone[r-records]]} -gt 0 ]; then
+            echo "#------- reverse records" >> $ZONES
+            offset=0
+            for j in $(seq 0 $((${zones[$zone[r-records]]}-1)) ); do
+                if [ "${zones[r-$j-$zone]}" != "" ]; then
+                    echo "zones[r-$(($j-$offset))-$zone]=\"${zones[r-$j-$zone]}\"" >> $ZONES
+                else
+                    zones[$zone[r-records]]=$((${zones[$zone[r-records]]}-1))
+                    offset=$(($offset+1))
+                fi
+                echo -n "~"
+            done
+        fi
+        echo "" >> $ZONES
+        echo "#total records ----- ---- ----" >> $ZONES
+        echo "zones[$zone[records]]=${zones[$zone[records]]}" >> $ZONES
+        echo "zones[$zone[r-records]]=${zones[$zone[r-records]]}" >> $ZONES
+
+        echo "#xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" >> $ZONES
+        echo "" >> $ZONES
+        echo -n "+"
+    done
+    echo ""
+}
+
+if [ "$(whoami)" != "root" ] && [ -z "$SUDO_COMMAND" ]; then
+    echo "configuration changes require root"
+    exit
+fi
+
+[ -e $ZONES ] || configHeader
+
+source $ZONES
+
+case $1 in
+
+    de-autoreverse)
+        shift
+        [ -z "$1" ] && echo "Missing zone" && exit 1
+        for zone in ${zl[@]}; do [ "$1" == "$zone" ] && exists=1 && break; done
+        [ -z "$exists" ] && echo "Zone does not exists" && exit 1
+        echo "Removing reverses for: $1"
+        for i in $(seq 0 $((${zones[$1[r-records]]}-1))); do
+            bui-cfgh rr-record $1 "${zones[r-$i-$1]}"
+        done
+        systemctl reload bind9
+        exit 0
+    ;;
+
+    autoreverse)
+        shift
+        [ -z "$1" ] && echo "Missing zone" && exit 1
+        echo "Autoreversing: $1"
+        [ -z "$2" ] && echo "warning not specified, mapping also CNAMEs" && MAP_CNAMES="map" || MAP_CNAMES=$2
+        for zone in ${zl[@]}; do [ "$1" == "$zone" ] && exists=1 && break; done
+        [ -z "$exists" ] && echo "Zone does not exists" && exit 1
+        for i in $(seq 0 $((${zones[$1[records]]}-1))); do
+            
+            type=$(bui-common parse-record type "${zones[$i-$1]}")
+            name=$(bui-common parse-record name "${zones[$i-$1]}")
+            target=$(bui-common parse-record target "${zones[$i-$1]}")
+            
+            if [ "$type" == "A" ]; then
+                export QUIET=1
+                bui-cfgh addr-record $1 "$(bui-common format $target $name.$1)"
+                unset QUIET
+            fi
+
+            if [ "$type" == "CNAME" ] && ( [ "$MAP_CNAMES" == "map" ] ); then
+                c=18
+                ip=$(echo $(host $target localhost) | cut -d ' ' -f$c)
+                declare -A IPV4
+                unset ERR
+                source bui-common verifyIPV4 $ip
+                if [ ! -z "$ERR" ]; then
+                    ip=$(echo $(host $target localhost) | cut -d ' ' -f12)
+                    unset ERR
+                    source bui-common verifyIPV4 $ip
+                fi
+                while [ "$ip" != "" ] && [ ! -z "$ERR" ]; do
+                    unset ERR
+                    c=$(($c+6))
+                    ip=$(echo $(host $target localhost) | cut -d ' ' -f$c)
+                    source bui-common verifyIPV4 $ip
+                done
+                export QUIET=1
+                bui-cfgh addr-record $1 "$(bui-common format $ip $name.$1)"
+                unset QUIET
+            fi
+
+        done
+        systemctl reload bind9
+        exit 0
+
+    ;;
+
+    rr-record)
+        shift
+        [ -z $1 ] && echo "Missing zone name" && exit 1 || NAME="$1"
+        for zone in ${zl[@]}; do
+            [ "$zone" == $NAME ] && EXISTS="1"
+        done
+        [ -z "$EXISTS" ] && echo "zone $NAME does not exist" && exit
+        shift
+        while [ $# -gt 0 ]; do [ -z "$record" ] && record="$1" || record="$record $1"; shift; done
+        [ -z "$record" ] && echo "Missing dns record to remove" && exit 1
+        echo "Removing record: $record ; to: $NAME"
+        r=${zones[$NAME[r-records]]}
+        for i in $(seq 0 $(($r-1)) ); do
+            [ "${zones[r-$i-$NAME]}" == "$record" ] && zones[r-$i-$NAME]="" && removed=1 && break
+        done
+        [ -z "$removed" ] && echo "Thre record: $record ; was not found" && exit 1
+        db_file=$DB_FOLDER/${zones[$NAME[r-config]]}.db
+        echo "$(sed -E "/^$record$/d" $db_file)" > $db_file
+        unset r
+        incrementSerial $db_file
+        systemctl reload bind9
+        save
+        exit 0
+    ;;
+
+    addr-record)
+        shift
+        [ -z $1 ] && echo "Missing zone name" && exit 1 || NAME="$1"
+        for zone in ${zl[@]}; do
+            [ "$zone" == $NAME ] && EXISTS="1"
+        done
+        [ -z "$EXISTS" ] && echo "zone $NAME does not exist" && exit
+        shift
+        while [ $# -gt 0 ]; do [ -z "$record" ] && record="$1" || record="$record $1"; shift; done
+        [ -z "$record" ] && echo "Missing dns record to add" && exit 1
+        ! bui-common verify "$record" && echo "invalid record: $record" && exit 1
+        echo "Adding record: $record ; to: $NAME"
+        r=${zones[$NAME[r-records]]}
+        for i in $(seq 0 $(($r-1))); do
+            [ "${zones[r-$i-$NAME]}" == "$record" ] && echo "can not add same record twice" && exit 1
+        done
+        zones[$NAME[r-records]]=$(($r+1))
+        zones[r-$r-$NAME]="$record"
+        db_file=$DB_FOLDER/${zones[$NAME[r-config]]}.db
+        [ ! -z "$(grep -x "$record" $db_file)" ] && echo "Record: $record ; already exists in database" || echo "$record" >> $db_file
+        unset r
+        incrementSerial $db_file
+        systemctl reload bind9
+        save
+        exit 0
+    ;;
+
+    rrecord)
+        shift
+        [ -z $1 ] && echo "Missing zone name" && exit 1 || NAME="$1"
+        for zone in ${zl[@]}; do
+            [ "$zone" == $NAME ] && EXISTS="1"
+        done
+        [ -z "$EXISTS" ] && echo "zone $NAME does not exist" && exit
+        shift
+        while [ $# -gt 0 ]; do [ -z "$record" ] && record="$1" || record="$record $1"; shift; done
+        [ -z "$record" ] && echo "Missing dns record to remove" && exit 1
+        echo "Removing record: $record ; to: $NAME"
+        r=${zones[$NAME[records]]}
+        for i in $(seq 0 $(($r-1)) ); do
+            [ "${zones[$i-$NAME]}" == "$record" ] && zones[$i-$NAME]="" && removed=1 && break
+        done
+        [ -z "$removed" ] && echo "Thre record: $record ; was not found" && exit 1
+        db_file=$DB_FOLDER/$NAME.db
+        echo "$(sed -E "/^$record$/d" $db_file)" > $db_file
+        unset r
+        incrementSerial $db_file
+        systemctl reload bind9
+        save
+        exit 0
+    ;;
+
+    addrecord)
+        shift
+        [ -z $1 ] && echo "Missing zone name" && exit 1 || NAME="$1"
+        for zone in ${zl[@]}; do
+            [ "$zone" == $NAME ] && EXISTS="1"
+        done
+        [ -z "$EXISTS" ] && echo "zone $NAME does not exist" && exit
+        shift
+        while [ $# -gt 0 ]; do [ -z "$record" ] && record="$1" || record="$record $1"; shift; done
+        [ -z "$record" ] && echo "Missing dns record to add" && exit 1
+        ! bui-common verify "$record" && echo "invalid record: $record" && exit 1
+        echo "Adding record: $record ; to: $NAME"
+        r=${zones[$NAME[records]]}
+        for i in $(seq 0 $(($r-1))); do
+            [ "${zones[$i-$NAME]}" == "$record" ] && echo "can not add same record twice" && exit 1
+        done
+        zones[$NAME[records]]=$(($r+1))
+        zones[$r-$NAME]="$record"
+        db_file=$DB_FOLDER/$NAME.db
+        [ ! -z "$(grep -x "$record" $db_file)" ] && echo "Record: $record ; already exists in database" || echo "$record" >> $db_file
+        unset r
+        incrementSerial $db_file
+        systemctl reload bind9
+        save
+        exit 0
+    ;;
+
+    rzone)
+        shift
+        [ -z $1 ] && echo "Missing zone name" && exit 1
+        for i in $(seq 0 $((${#zl[@]}-1)) ); do
+            [ "${zl[$i]}" == $1 ] && unset zl[$i] && DONE=1
+        done
+        [ -z "$DONE" ] && echo "There's no zone called $1" && exit 1
+        echo "$(sed -E "/zone \"$1\"/,/};/d" $NAMED_LOCAL)" > $NAMED_LOCAL
+        reverse="${zones[$1[r-config]]}"
+        if [ ${#zl[@]} -gt 0 ]; then
+            for zone in ${zl[@]}; do
+                [ "${zones[$zone[r-config]]}" == "$reverse" ] && needed=1 && break
+            done
+        fi
+        [ -z "$needed" ] && echo "$(sed -E "/zone \"$reverse\"/,/};/d" $NAMED_LOCAL)" > $NAMED_LOCAL && rm -rf $DB_FOLDER/$reverse.db
+        rm -rf $DB_FOLDER/$1.db
+        if [ ! -z "$needed" ]; then
+            if [ ${zones[$1[r-records]]} -gt 0 ]; then
+                db="$(cat $DB_FOLDER/${zones[$1[r-config]]}.db)"
+                for i in $(seq 0 $((${zones[$1[r-records]]}-1))); do
+                    r="${zones[r-$i-$1]}"
+                    db="$(sed -E "/$r/d" <<< $db)"
+                done
+                echo "$db" > $DB_FOLDER/${zones[$1[r-config]]}.db
+            fi
+        fi
+        sed  -E "/^search $NAME$/d" $RESOLV > $RESOLV
+        systemctl reload bind9
+        save
+        exit 0
+    ;;
+
+    addzone)
+        shift
+        [ -z $1 ] && echo "Missing zone name" && exit 1 || NAME="$1"
+        [ -z $2 ] && echo "Missing server ip" && exit 1 || IP="$2"
+        [ -z $3 ] && TTL="$(echo "$(bui-default ttl)")" || TTL="$2"
+        [ -z $4 ] && REFRESH="$(echo "$(bui-default refresh)")" || REFRESH="$3"
+        [ -z $5 ] && RETRY="$(echo "$(bui-default retry)")" || RETRY="$4"
+        [ -z $6 ] && EXPIRE="$(echo "$(bui-default expire)")" || EXPIRE="$5"
+        [ -z $7 ] && NETWORK="$(echo "$(bui-default network)")" || NETWORK="$6"
+        [ -z $8 ] && NETMASK="$(echo "$(bui-default netmask)" )" || NETMASK="$7"
+        [ -z $9 ] && RESPONSABLE="$(echo "$(bui-default responsable)" )" || RESPONSABLE="$8"
+        shift
+        [ -z $9 ] && NEGATIVE_CACHE_TTL="$(echo "$(bui-default ncttl)" )" || NEGATIVE_CACHE_TTL="$9"
+        shift
+        [ -z $9 ] && R_RESPONSABLE="$(echo "$(bui-default responsable)" )" || R_RESPONSABLE="$9"
+        for zone in ${zl[@]}; do
+            [ "$zone" == "$NAME" ] && echo "Zone $NAME already exists" && exit 1
+        done
+        declare -A IPV4
+        source bui-common verifyIPV4 $IP
+        [ ! -z $ERR ] && echo "$IP is not a valid ip: $ERR" && exit
+        unset IPV4
+        echo "adding zone: $NAME, server IP: $IP, ttl: $TTL, refresh: $REFRESH, retry: $RETRY, expire: $EXPIRE"
+        echo "network: $NETWORK/$NETMASK, responsable: $RESPONSABLE, negative cache ttl: $NEGATIVE_CACHE_TTL, reverse responsable: $R_RESPONSABLE"
+        zl[${#zl[@]}]="$NAME"
+        
+        #incrementSerial $DB_FOLDER/$NAME.db
+        zones[$NAME[network]]="$NETWORK"
+        zones[$NAME[ttl]]="$TTL"
+        zones[$NAME[ncttl]]="$NEGATIVE_CACHE_TTL"
+        zones[$NAME[refresh]]="$REFRESH"
+        zones[$NAME[retry]]="$RETRY"
+        zones[$NAME[expire]]="$EXPIRE"
+        zones[$NAME[netmask]]="$NETMASK"
+        zones[$NAME[responsable]]="$RESPONSABLE"
+        zones[$NAME[r-responsable]]="$R_RESPONSABLE"
+        UPDATE_CALL=1
+        zones[$NAME[config]]="$(zoneConfig $NAME)"
+        zones[$NAME[r-config]]="$(reverseZoneString ${zones[$NAME[network]]} ${zones[$NAME[netmask]]} )"
+        export QUIET=1
+        ns1="$(bui-common format ns1 $IP)"
+        zones[$NAME[ns1]]=$ns1
+
+        rz=${zones[$NAME[r-config]]}
+        [ -z "$(grep -E "^zone \"$NAME\"" $NAMED_LOCAL)" ] && echo "${zones[$NAME[config]]}" >> $NAMED_LOCAL
+        [ -z "$(grep -E "^zone \"$rz\"" $NAMED_LOCAL)" ] && echo "$(reverseZoneConfig $rz)" >> $NAMED_LOCAL
+        unset UPDATE_CALL
+        [ -e "$DB_FOLDER/$NAME.db" ] || writeDatabaseHeader $NAME
+        [ -e "$DB_FOLDER/${zones[$NAME[r-config]]}.db" ] || writeDatabaseHeader $NAME ${zones[$NAME[r-config]]}
+
+        echo "search $NAME" >> $RESOLV
+        save
+        
+        unset zl
+        unset zones
+        unset ERR
+        unset IPV4
+
+        bui-cfgh addrecord $NAME "$ns1"
+        bui-cfgh autoreverse $NAME
+
+        exit 0
+        
+        #incrementSerial $DB_FOLDER/$NAME.db
+        #systemctl reload bind9
+    ;;
+
+    *)
+        [ $# -gt 0 ] && echo "unrecognized option $1" && exit 1
+    ;;
+
+esac
+
+[ $# -eq 0 ] && save

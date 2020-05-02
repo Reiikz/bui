@@ -1,0 +1,6 @@
+zone "%ZONE_NAME%" IN {
+
+	type master;
+	file "/etc/bind/zones/%ZONE_NAME%.db";
+	
+};

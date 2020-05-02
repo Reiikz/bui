@@ -1,0 +1,20 @@
+;
+;       %zone% DNS DATABASE
+;
+; dummy-bindbc GENERATED DNS DATABSE,
+; ¿what ya' lookin' for? go use "man bindb" and don't touch here.
+; seriously, don't touch, the script depends on the format of this
+; comments to work, if you don't touch this header's comments
+; feel free to edit any records or values.
+;
+$TTL	%ttl%
+@	IN	SOA	%zone%. %responsable%.%zone%. (
+			      %serial%		; Serial
+			 %refresh%		; Refresh
+			  %retry%		; Retry
+			%expire%		; Expire
+			 %negative_cache_ttl% )	; Negative Cache TTL
+;
+@	IN	NS	ns1.%zone%.
+@	IN	A	127.0.0.1
+@	IN	AAAA	::1

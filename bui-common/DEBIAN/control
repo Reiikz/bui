@@ -1,0 +1,9 @@
+Package: bui-common
+Version: 0.0.0
+Architecture: all
+Maintainer: Reiikz
+Depends: coreutils, host, bind9
+Homepage: https://github.com/reiikz
+Recomends:
+Description: low level bash scripts for handlign bind9 configuration
+Priority: optional

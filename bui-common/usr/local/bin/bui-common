@@ -1,0 +1,192 @@
+#!/bin/bash
+CONFIG_FOLDER=/etc/bui
+ZONES=$CONFIG_FOLDER/zones.sh
+DEFAULTS=$CONFIG_FOLDER/bindb-defaults.sh
+
+source $DEFAULTS 2> /dev/null
+[ -z "$SPACES_COUNT_FOR_DB" ] && SPACES_COUNT_FOR_DB=30
+[ -z "$SECOND_SPACE_COUNT_FOR_DB" ] && SECOND_SPACE_COUNT_FOR_DB=7
+
+function reverseIP {
+    a="$(echo "$1" | cut -d'.' -f 4)"
+    b="$(echo "$1" | cut -d'.' -f 3)"
+    c="$(echo "$1" | cut -d'.' -f 2)"
+    d="$(echo "$1" | cut -d'.' -f 1)"
+    if [ "$3" == "network" ]; then
+        [ $2 -gt 24 ] && echo -n "$a"
+        [ $2 -gt 16 ] && [ $2 -gt 24 ] && echo -n "."
+        [ $2 -gt 16 ] && echo -n "$b"
+        [ $2 -gt 8  ] && [ $2 -gt 16 ] && echo -n "."
+        [ $2 -gt 8  ] && echo -n "$c"
+        [ $2 -gt 0  ] && [ $2 -gt 8 ] && echo -n "."
+        [ $2 -gt 0  ] && echo -n "$d"
+        echo ""
+    else
+        [ $2 -le 24 ] && echo -n "$a"
+        [ $2 -le 24 ] && [ $2 -le 16 ] && echo -n "."
+        [ $2 -le 16 ] && echo -n "$b"
+        [ $2 -le 16 ] && [ $2 -le 8 ] && echo -n "."
+        [ $2 -le 8 ] && echo -n "$c"
+        [ $2 -le 8 ] && [ $2 -le 0 ] && echo -n "."
+        [ $2 -le 0 ] && echo -n "$d"
+        echo ""
+    fi
+}
+
+function isIPV4 {
+    if [ ! -z $(grep -E "^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$" <<< $1) ] || [ ! -z $(grep -E "^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$" <<< $1) ]; then
+        #declare -A IPV4
+        IPV4[0]=$(cut -d'.' -f 4 <<< $1)
+        IPV4[ip]=$(sed -E "s/\/[0-9]*//" <<< $1)
+        [ $(grep -c "/" <<< ${IPV4[0]} ) -gt 0 ] && IPV4[mask]=$(sed -E "s/.*\///" <<< ${IPV4[0]})
+        [ $(grep -c "/" <<< ${IPV4[0]} ) -gt 0 ] && IPV4[0]=$(sed -E "s/\/[0-9]*//" <<< ${IPV4[0]})
+        IPV4[1]=$(cut -d'.' -f 3 <<< $1)
+        IPV4[2]=$(cut -d'.' -f 2 <<< $1)
+        IPV4[3]=$(cut -d'.' -f 1 <<< $1)
+        [ ${IPV4[0]} -gt 255 ] && ERR="${IPV4[0]} is not a valid value $1 is not a valid ip"
+        [ ${IPV4[1]} -gt 255 ] && ERR="${IPV4[1]} is not a valid value $1 is not a valid ip"
+        [ ${IPV4[2]} -gt 255 ] && ERR="${IPV4[2]} is not a valid value $1 is not a valid ip"
+        [ ${IPV4[3]} -gt 255 ] && ERR="${IPV4[3]} is not a valid value $1 is not a valid ip"
+        [ $(grep -c "/" <<< ${IPV4[ip]} ) -gt 0 ] && ( [ ${IPV4[mask]} -ne 32 ] && [ ${IPV4[mask]} -ne 24 ] && [ ${IPV4[mask]} -ne 16 ] && [ ${IPV4[mask]} -ne 8 ] && [ ${IPV4[mask]} -ne 0 ] )  && ERR="${IPV4[mask]} is not a valid mask"
+    else
+        ERR="$1 is not an IPV4 format (XXX.XXX.XXX.XXX)"
+        export ERR="$1 is not an IPV4 format (XXX.XXX.XXX.XXX)"
+    fi
+}
+
+function splitByZones {
+    c=$(sed "s/\./\.\n/g" <<< $1 | grep -c ".")
+    for i in $(seq 1 $c); do
+        FIELDS[$(($i-1))]=$(cut -d'.' -f $i <<< $1)
+    done
+    LAST_FIELD=$(($c-1))
+}
+
+function verify {
+    if [ ! -z "$(grep -E "^[0-9.a-zA-Z-]+\s+IN\s+(CNAME|PTR|A|AAA)\s+[0-9.a-zA-Z-]+$" <<< "$1")" ]; then
+        exit 0
+    else
+        exit 1
+    fi
+}
+
+function format {
+    if [ $# -lt 2 ]; then
+        ERR="Too few arguments expeted at least 2 given $# (name ip | name name | ip name)"
+        [ -z "$QUIET" ] && echo $ERR
+        exit 1
+    fi
+    if [ $# -gt 3 ]; then
+        ERR="Too many arguments expeted at most 3 given $# (name type target)"
+        [ -z "$QUIET" ] && echo $ERR
+        exit 1
+    fi
+    out=""
+    if [ $# -eq 2 ]; then
+        declare -A IPV4
+        isIPV4 $1
+        mask=${IPV4[mask]}
+        #echo ${IPV4[@]}
+        if [ -z "${IPV4[mask]}" ] || [ "${IPV4[mask]}" == "" ] && [ ! -z "${IPV4[ip]}" ]; then
+            if ! source $ZONES 2> /dev/null; then ERR="could not read $ZONES"; [ -z "$QUIET" ] && echo $ERR; exit 1; fi
+            declare -A FIELDS
+            splitByZones $2
+            [ -z "${zones[${FIELDS[$LAST_FIELD]}[netmask]]}" ] && [ -z "$QUIET" ] && printf "Could not auto find netmask for authority zone: ${FIELDS[$LAST_FIELD]}\nreading from: $ZONES\n" && exit 1
+            mask=${zones[${FIELDS[$LAST_FIELD]}[netmask]]}
+        fi
+        if [ -z "$ERR" ]; then
+            [ -z "$QUIET" ] && echo "Record type not speciefied, gess: PTR"
+            ri=$(reverseIP ${IPV4[ip]} $mask host)
+            
+            spaces=$(($SPACES_COUNT_FOR_DB-${#ri}))
+            out="$ri"
+            for i in $(seq 1 $spaces); do out="$out "; done
+            out="$out IN    PTR     $2."
+        else
+            unset ERR
+            isIPV4 $2
+            if [ -z "$ERR" ]; then
+                [ -z "$QUIET" ] && echo "Record type not speciefied, gess: A"
+                spaces=$(($SPACES_COUNT_FOR_DB-${#1}))
+                out=$1
+                for i in $(seq 1 $spaces); do out="$out "; done
+                out="$out IN    A       $2"
+            else
+                [ -z "$QUIET" ] && echo "Record type not speciefied, gess: CNAME"
+                spaces=$(($SPACES_COUNT_FOR_DB-${#1}))
+                out=$1
+                for i in $(seq 1 $spaces); do out="$out "; done
+                out="$out IN    CNAME   $2."
+            fi
+
+        fi
+    else
+        spaces=$(($SPACES_COUNT_FOR_DB-${#1}))
+        out=$1
+        for i in $(seq 1 $spaces); do out="$out "; done
+        out="$out IN    $2"
+        spaces=$(($SECOND_SPACE_COUNT_FOR_DB-${#2}))
+        for i in $(seq 1 $spaces); do out="$out "; done
+        out="$out $3"
+    fi
+    echo "$out"
+}
+
+function parse-record {
+    req=$1
+    shift
+    while [ $# -gt 0 ]; do [ -z "$record" ] && record="$1" || record="$record $1"; shift; done
+    record="$(sed -E "s/\s+/ /g" <<< $record)"
+    [ "$req" == "name" ] && echo "$(cut -d' ' -f1 <<< $record)"
+    [ "$req" == "type" ] && echo "$(cut -d' ' -f3 <<< $record)"
+    [ "$req" == "target" ] && echo "$(cut -d' ' -f4 <<< $record)"
+}
+
+while [ $# -gt 0 ]; do
+    case $1 in
+
+        parse-record)
+            shift
+            while [ $# -gt 0 ]; do opts="$opts $1"; shift; done
+            parse-record $opts
+            exit 0
+        ;;
+
+        verify)
+            shift
+            unset opts
+            while [ $# -gt 0 ]; do [ -z "$opts" ] && opts="$1" || opts="$opts $1"; shift; done
+            verify "$opts"
+            exit 0
+        ;;
+
+        verifyIPV4)
+            isIPV4 $2
+        ;;
+
+        reverse-ip)
+            shift
+            [ -z $1 ] && echo "Missing ip" && exit 1
+            [ -z $2 ] && echo "Missing netmask" && exit 1
+            [ -z $3 ] && spec="network" || spec=$3
+            echo "$(reverseIP $1 $2 "$spec")"
+            exit 0
+        ;;
+
+        test)
+            declare -A FIELDS
+            splitByZones $2
+            echo "${FIELDS[@]}"
+            exit 0
+        ;;
+        
+        format|-f|--format)
+            shift
+            while [ $# -gt 0 ]; do opts="$opts $1"; shift; done
+            format $opts
+            exit 0
+        ;;
+
+    esac
+    shift
+done
