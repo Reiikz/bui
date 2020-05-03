@@ -125,8 +125,8 @@ function save {
             echo "#------- records" >> $ZONES
             offset=0
             for j in $(seq 0 $((${zones[$zone[records]]}-1)) ); do
-                if [ "${zones[$j-$zone]}" != "" ]; then
-                    echo "zones[$(($j-$offset))-$zone]=\"${zones[$j-$zone]}\"" >> $ZONES
+                if [ "${zones[;$j-$zone]}" != "" ]; then
+                    echo "zones[;$(($j-$offset))-$zone]=\"${zones[;$j-$zone]}\"" >> $ZONES
                 else
                     zones[$zone[records]]=$((${zones[$zone[records]]}-1))
                     offset=$(($offset+1))
@@ -139,8 +139,8 @@ function save {
             echo "#------- reverse records" >> $ZONES
             offset=0
             for j in $(seq 0 $((${zones[$zone[r-records]]}-1)) ); do
-                if [ "${zones[r-$j-$zone]}" != "" ]; then
-                    echo "zones[r-$(($j-$offset))-$zone]=\"${zones[r-$j-$zone]}\"" >> $ZONES
+                if [ "${zones[;r-$j-$zone]}" != "" ]; then
+                    echo "zones[;r-$(($j-$offset))-$zone]=\"${zones[;r-$j-$zone]}\"" >> $ZONES
                 else
                     zones[$zone[r-records]]=$((${zones[$zone[r-records]]}-1))
                     offset=$(($offset+1))
@@ -162,7 +162,7 @@ function save {
 
 if [ "$(whoami)" != "root" ] && [ -z "$SUDO_COMMAND" ]; then
     echo "configuration changes require root"
-    exit
+    exit 1
 fi
 
 [ -e $ZONES ] || configHeader
@@ -178,7 +178,7 @@ case $1 in
         [ -z "$exists" ] && echo "Zone does not exists" && exit 1
         echo "Removing reverses for: $1"
         for i in $(seq 0 $((${zones[$1[r-records]]}-1))); do
-            bui-cfgh rr-record $1 "${zones[r-$i-$1]}"
+            bui-cfgh rr-record $1 "${zones[;r-$i-$1]}"
         done
         systemctl reload bind9
         exit 0
@@ -193,9 +193,9 @@ case $1 in
         [ -z "$exists" ] && echo "Zone does not exists" && exit 1
         for i in $(seq 0 $((${zones[$1[records]]}-1))); do
             
-            type=$(bui-common parse-record type "${zones[$i-$1]}")
-            name=$(bui-common parse-record name "${zones[$i-$1]}")
-            target=$(bui-common parse-record target "${zones[$i-$1]}")
+            type=$(bui-common parse-record type "${zones[;$i-$1]}")
+            name=$(bui-common parse-record name "${zones[;$i-$1]}")
+            target=$(bui-common parse-record target "${zones[;$i-$1]}")
             
             if [ "$type" == "A" ]; then
                 export QUIET=1
@@ -244,7 +244,7 @@ case $1 in
         echo "Removing record: $record ; to: $NAME"
         r=${zones[$NAME[r-records]]}
         for i in $(seq 0 $(($r-1)) ); do
-            [ "${zones[r-$i-$NAME]}" == "$record" ] && zones[r-$i-$NAME]="" && removed=1 && break
+            [ "${zones[;r-$i-$NAME]}" == "$record" ] && zones[;r-$i-$NAME]="" && removed=1 && break
         done
         [ -z "$removed" ] && echo "Thre record: $record ; was not found" && exit 1
         db_file=$DB_FOLDER/${zones[$NAME[r-config]]}.db
@@ -270,10 +270,10 @@ case $1 in
         echo "Adding record: $record ; to: $NAME"
         r=${zones[$NAME[r-records]]}
         for i in $(seq 0 $(($r-1))); do
-            [ "${zones[r-$i-$NAME]}" == "$record" ] && echo "can not add same record twice" && exit 1
+            [ "${zones[;r-$i-$NAME]}" == "$record" ] && echo "can not add same record twice" && exit 1
         done
         zones[$NAME[r-records]]=$(($r+1))
-        zones[r-$r-$NAME]="$record"
+        zones[;r-$r-$NAME]="$record"
         db_file=$DB_FOLDER/${zones[$NAME[r-config]]}.db
         [ ! -z "$(grep -x "$record" $db_file)" ] && echo "Record: $record ; already exists in database" || echo "$record" >> $db_file
         unset r
@@ -296,7 +296,7 @@ case $1 in
         echo "Removing record: $record ; to: $NAME"
         r=${zones[$NAME[records]]}
         for i in $(seq 0 $(($r-1)) ); do
-            [ "${zones[$i-$NAME]}" == "$record" ] && zones[$i-$NAME]="" && removed=1 && break
+            [ "${zones[;$i-$NAME]}" == "$record" ] && zones[;$i-$NAME]="" && removed=1 && break
         done
         [ -z "$removed" ] && echo "Thre record: $record ; was not found" && exit 1
         db_file=$DB_FOLDER/$NAME.db
@@ -322,10 +322,10 @@ case $1 in
         echo "Adding record: $record ; to: $NAME"
         r=${zones[$NAME[records]]}
         for i in $(seq 0 $(($r-1))); do
-            [ "${zones[$i-$NAME]}" == "$record" ] && echo "can not add same record twice" && exit 1
+            [ "${zones[;$i-$NAME]}" == "$record" ] && echo "can not add same record twice" && exit 1
         done
         zones[$NAME[records]]=$(($r+1))
-        zones[$r-$NAME]="$record"
+        zones[;$r-$NAME]="$record"
         db_file=$DB_FOLDER/$NAME.db
         [ ! -z "$(grep -x "$record" $db_file)" ] && echo "Record: $record ; already exists in database" || echo "$record" >> $db_file
         unset r
@@ -355,7 +355,7 @@ case $1 in
             if [ ${zones[$1[r-records]]} -gt 0 ]; then
                 db="$(cat $DB_FOLDER/${zones[$1[r-config]]}.db)"
                 for i in $(seq 0 $((${zones[$1[r-records]]}-1))); do
-                    r="${zones[r-$i-$1]}"
+                    r="${zones[;r-$i-$1]}"
                     db="$(sed -E "/$r/d" <<< $db)"
                 done
                 echo "$db" > $DB_FOLDER/${zones[$1[r-config]]}.db

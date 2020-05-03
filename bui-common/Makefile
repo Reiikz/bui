@@ -8,7 +8,7 @@ makedeb:
 	@cp -R DEBIAN $(FOLDER_NAME)
 	@cp -R etc $(FOLDER_NAME)
 	@cp -R usr $(FOLDER_NAME)
-	@gzip $(FOLDER_NAME)/usr/share/man/man8/bui-*.8
+	@gzip $(FOLDER_NAME)/usr/share/man/man8/bui*.8
 	@chmod -R 700 $(FOLDER_NAME)/etc
 	@chmod -R 555 $(FOLDER_NAME)/usr
 	@chmod -R 744 $(FOLDER_NAME)/usr/share

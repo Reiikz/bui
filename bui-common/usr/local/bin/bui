@@ -1,0 +1,211 @@
+#!/bin/bash
+VERSION=0.0.1
+CONFIG_FOLDER=/etc/bui
+ZONES=$CONFIG_FOLDER/zones.sh
+
+function printInfo {
+    echo "bui command, version $VERSION"
+    echo "Copyright (c) 2020"
+    echo "License GNU/LGPLv3.0"
+    echo "source on: https://github.com/Reiikz/bui"
+}
+
+function printHelp {
+    echo "RTFM..."
+    echo "For help use man bui"
+}
+
+function verifyExistance {
+    source $ZONES
+    for i in $(seq 0 $((${#zl[@]}-1)) ); do
+        [ "$1" == "${zl[$i]}" ] && exists=1 && break
+    done
+}
+
+function breakDownDomain {
+    d=$1
+    declare -A FIELDS
+    source bui-common break-domain $d
+    az="${FIELDS[$LAST_FIELD]}"
+    for i in $(seq 0 $(($LAST_FIELD-1)) ); do [ ! -z $dwaz ] && dwaz="$dwaz.${FIELDS[$i]}" || dwaz="${FIELDS[$i]}"; done
+}
+
+function verifyDomain {
+    d=$1
+    breakDownDomain $d
+    unset exists
+    verifyExistance $az
+    [ -z "$exists" ] && echo "Authority zone $az does not exist, use bui -az -d <zone name> -IP <server ip> to create it" && exit 1
+}
+
+function auto {
+    if [ "$FIRST" == "ADDRESS" ] && [ ! -z "${DOMAINS[@]}" ]; then
+        #[ ${#DOMAINS[@]} -gt 1 ] && echo "Error: specified more than 1 domain on reverse dns addition" && exit 1
+        #[ ${#ADDRESSES[@]} -gt 1 ] && echo "Error: specified more than 1 address on reverse dns addition" && exit 1
+        addr="${ADDRESSES[0]}"
+        d="${DOMAINS[0]}"
+        unset ERR
+        declare -A IPV4
+        source bui-common verifyIPV4 $addr
+        [ ! -z "$ERR" ] && echo "$ERR" && exit 1
+        verifyDomain $d
+        export QUIET=1
+        bui-cfgh addr-record $az "$(bui-common format $addr $d)"
+        unset QUIET
+        exit 0
+    fi
+    if [ "$FIRST" == "DOMAIN" ] && [ ! -z "${ADDRESSES[@]}" ] && [ ${#DOMAINS[@]} -eq 1 ]; then
+        d="${DOMAINS[0]}"
+        addr="${ADDRESSES[0]}"
+        unset ERR
+        declare -A IPV4
+        source bui-common verifyIPV4 $addr
+        [ ! -z "$ERR" ] && echo "$ERR" && exit 1
+        unset FIELDS
+        verifyDomain $d
+        
+        
+        export QUIET=1
+        bui-cfgh addrecord $az "$(bui-common format $dwaz $addr)"
+        unset QUIET
+        exit 0
+    fi
+    if [ ${#DOMAINS[@]} -eq 2 ]; then
+        d="${DOMAINS[0]}"
+        unset FIELDS
+        breakDownDomain $d
+        export QUIET=1
+        bui-cfgh addrecord $az "$(bui-common format $dwaz ${DOMAINS[1]})"
+        unset QUIET
+        exit 0
+    fi
+    echo "Wrong usage of bui auto, use man bui" 
+    exit 1
+}
+
+function reset {
+    [ -z ${DOMAINS[@]} ] && echo "specify at least 1 domain to clear (-d example.com)" && exit 1
+    source $ZONES
+    for i in $(seq 0 $((${#DOMAINS[@]}-1)) ); do
+        d="${DOMAINS[$i]}"
+        verifyDomain $d
+        [ -z "$exists" ] && echo "Authority zone $az does not exist, use bui -az -d <zone name> -IP <server ip> to create it" && exit 1
+        for i in $(seq 0 $((${zones[$az[records]]}-1)) ); do
+            r="${zones[;$i-$az]}"
+            if [ "$az" == "$d" ]; then
+                bui-cfgh rrecord $az "$r"
+            else
+                regex=$(sed -E "s/\./\\\./g" <<< $dwaz)
+                [ "$(grep -oE "^.*\.{1}$regex\s+IN.*$" <<< $r )" != "" ] && bui-cfgh rrecord $az "$r"
+                [ "$(grep -oE "^$regex\s+IN.*$" <<< $r )" != "" ] && bui-cfgh rrecord $az "$r"
+            fi
+        done
+    done
+    [ "$az" == "$d" ] && bui-cfgh addrecord $az "${zones[$az[ns1]]}"
+    [ ! -z $ALL ] && resetReverse
+    exit 0
+}
+
+function isThereDomains {
+    [ -z ${DOMAINS[@]} ] && echo "specify at least 1 domain to clear (-d example.com)" && exit 1
+}
+
+function resetReverse {
+    [ -z ${DOMAINS[@]} ] && echo "specify at least 1 domain to clear (-d example.com)" && exit 1
+    source $ZONES
+    for i in $(seq 0 $((${#DOMAINS[@]}-1)) ); do
+        d="${DOMAINS[$i]}"
+        source bui-common break-domain $d
+        az="${FIELDS[$LAST_FIELD]}"
+        for i in $(seq 0 $(($LAST_FIELD-1)) ); do [ ! -z $dwaz ] && dwaz="$dwaz.${FIELDS[$i]}" || dwaz="${FIELDS[$i]}"; done
+        unset exists
+        verifyExistance $az
+        [ -z "$exists" ] && echo "Authority zone $az does not exist, use bui -az -d <zone name> -IP <server ip> to create it" && exit 1
+        for i in $(seq 0 $((${zones[$az[r-records]]}-1)) ); do
+            r="${zones[;r-$i-$az]}"
+            if [ "$az" == "$d" ]; then
+                bui-cfgh rr-record $az "$r"
+            else
+                regex=$(sed -E "s/\./\\\./g" <<< $dwaz)
+                [ "$(grep -oE "^.*\.{1}$regex\s+IN.*$" <<< $r )" != "" ] && bui-cfgh rr-record $az "$r"
+                [ "$(grep -oE "^$regex\s+IN.*$" <<< $r )" != "" ] && bui-cfgh rr-record $az "$r"
+            fi
+        done
+    done
+    exit 0
+}
+
+function autoreverse {
+    isThereDomains
+    for d in ${DOMAINS[@]}; do
+        bui-cfgh autoreverse $d
+    done
+}
+
+function de-autoreverse {
+    isThereDomains
+    for d in ${DOMAINS[@]}; do
+        bui-cfgh de-autoreverse $d
+    done
+}
+
+[ $# -eq 0 ] && op="printHelp"
+opts=""
+while [ $# -gt 0 ]; do
+    case $1 in
+
+        autoreverse|--autoreverse)
+            op=autoreverse
+        ;;
+
+        de-autoreverse|--de-autoreverse)
+            op=de-autoreverse
+        ;;
+        
+        --all)
+            ALL=1
+        ;;
+
+        --reset|reset)
+            op=reset
+        ;;
+
+        --reset-reverse|reset-reverse)
+            op=resetReverse
+        ;;
+
+        --address|-IP)
+            shift
+            ADDRESSES[${#ADDRESSES[@]}]="$1"
+            [ -z "$FIRST" ] && FIRST="ADDRESS"
+        ;;
+
+        --domain|-d)
+            shift
+            DOMAINS[${#DOMAINS[@]}]="$1"
+            [ -z "$FIRST" ] && FIRST="DOMAIN"
+        ;;
+
+        auto|--auto|-a)
+            [ -z "$op" ] && op="auto"
+        ;;
+
+        h|-h|--help|-help|help)
+            printHelp
+            exit 0
+        ;;
+
+        --version|-v|-version)
+            printInfo
+            exit 0
+        ;;
+
+        *)
+            opts="$opts "
+        ;;
+    esac
+    shift
+done
+
+$op $opts
+exit 0

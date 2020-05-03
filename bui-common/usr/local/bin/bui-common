@@ -180,6 +180,13 @@ while [ $# -gt 0 ]; do
             exit 0
         ;;
 
+        break-domain)
+            shift
+            [ $# -gt 1 ] && exit 1
+            [ $# -lt 1 ] && exit 1
+            splitByZones $1
+        ;;
+
     esac
     shift
 done
