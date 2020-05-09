@@ -1,0 +1,17 @@
+#!/bin/bash
+
+make uninstall
+
+for file in usr/local/bin/*; do
+    f=$(realpath $file)
+    echo $f
+    [ ! -d "$f" ] && ln $f /usr/local/bin/
+done
+
+for file in usr/share/man/man8/*; do
+    f=$(realpath $file)
+    echo $f
+    [ ! -d "$f" ] && ln $f /usr/share/man/man8/
+done
+
+cp -R etc/bui /etc

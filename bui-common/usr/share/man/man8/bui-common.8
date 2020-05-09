@@ -32,6 +32,14 @@ bui-common - low level command for bui and bui-cfgh
     ${IPV4[2]} containing only the field 3
     ${IPV4[3]} containing only the field 4
 
+.IP get-ip
+    It returns each ip for all interfaces, to use this you have to source the script and declare an associative array
+    calles IPS (declare -A IPS)
+    example:
+        ${IPS[0]} # will contain the IP
+        ${IPS[0;iface]} # will contain the interface to which the ip address belongs
+        ${IPS[last]} # will contain the id of the last element on the list
+
 .IP <name|type|target> parse-record <record>
     Used only for A and CNAME records, it returns de specified part of the record.
     the type if is type specified.

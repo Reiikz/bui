@@ -367,6 +367,30 @@ case $1 in
         exit 0
     ;;
 
+    header)
+        shift
+        [ -z $1 ] && echo "Missing zone name" && exit 1 || NAME="$1"
+        unset exists
+        for z in ${zl[@]}; do
+            [ "$z" == "$NAME" ] && exists=1 && break
+        done
+        [ -z "$exists" ] && echo "zone $NAME does not exist" && exit 1
+
+        [ -z $2 ] && echo "Missing server ip" && exit 1 || zones[$NAME[network]]="$2"
+        [ -z $3 ] && echo "Missing TTL" && exit 1 || zones[$NAME[ttl]]="$2"
+        [ -z $4 ] && echo "Missing REFRESH" && exit 1 || zones[$NAME[refresh]]="$3"
+        [ -z $5 ] && echo "Missing RETRY" && exit 1 || zones[$NAME[retry]]="$4"
+        [ -z $6 ] && echo "Missing EXPIRE" && exit 1 || zones[$NAME[expire]]="$5"
+        [ -z $7 ] && echo "Missing NETWORK" && exit 1 || zones[$NAME[network]]="$6"
+        [ -z $8 ] && echo "Missing NETMASK" && exit 1 || zones[$NAME[netmask]]="$7"
+        [ -z $9 ] && echo "Missing RESPONSABLE" && exit 1 || zones[$NAME[responsable]]="$8"
+        shift
+        [ -z $9 ] && echo "Missing NEGATIVE CACHE TTL" && exit 1 || zones[$NAME[ncttl]]="$9"
+        shift
+        [ -z $9 ] && echo "Missing REVERSE RESPONSABLE" && exit 1 || zones[$NAME[r-responsable]]="$9"
+        writeDatabaseHeader $NAME
+    ;;
+
     addzone)
         shift
         [ -z $1 ] && echo "Missing zone name" && exit 1 || NAME="$1"
@@ -425,8 +449,12 @@ case $1 in
         unset ERR
         unset IPV4
 
-        bui-cfgh addrecord $NAME "$ns1"
-        bui-cfgh autoreverse $NAME
+        if ! bui-cfgh addrecord $NAME "$ns1"; then
+            bui-cfgh rzone $NAME 
+            echo "Failed adding ns1 record"
+            exit 1
+        fi
+        bui-cfgh autoreverse $NAME no
 
         exit 0
         

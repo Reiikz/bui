@@ -5,5 +5,5 @@ Maintainer: Reiikz
 Depends: coreutils, host, bind9, man
 Homepage: https://github.com/reiikz
 Recomends:
-Description: low level bash scripts for handlign bind9 configuration
+Description: user scripts for administration bind9 server
 Priority: optional

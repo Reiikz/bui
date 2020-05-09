@@ -96,7 +96,7 @@ function reset {
                 bui-cfgh rrecord $az "$r"
             else
                 regex=$(sed -E "s/\./\\\./g" <<< $dwaz)
-                [ "$(grep -oE "^.*\.{1}$regex\s+IN.*$" <<< $r )" != "" ] && bui-cfgh rrecord $az "$r"
+                [ ! -z "$ALL" ] && [ "$(grep -oE "^.*\.{1}$regex\s+IN.*$" <<< $r )" != "" ] && bui-cfgh rrecord $az "$r"
                 [ "$(grep -oE "^$regex\s+IN.*$" <<< $r )" != "" ] && bui-cfgh rrecord $az "$r"
             fi
         done
@@ -149,17 +149,100 @@ function de-autoreverse {
     done
 }
 
+function isNaturalNumber {
+    [ -z "$(grep -oE "^[0-9]+$" <<< "$1")" ] && echo "WRONG $2 $1 is not a number or it is negative, aborted" && exit 1
+}
+
+function addzone {
+    isThereDomains
+
+    [ -z $TTL ] &&                  TTL=$(bui-default ttl)
+    [ -z $REFRESH ] &&              REFRESH=$(bui-default refresh)
+    [ -z $RETRY ] &&                RETRY=$(bui-default retry)
+    [ -z $EXPIRE ] &&               EXPIRE=$(bui-default expire)
+    [ -z $RESPONSABLE ] &&          RESPONSABLE=$(bui-default responsable)
+    [ -z $NEGATIVE_CACHE_TTL ] &&   NEGATIVE_CACHE_TTL=$(bui-default ncttl)
+    [ -z $R_RESPONSABLE ] &&        R_RESPONSABLE=$(bui-default responsable)
+
+    if [ ! -z "${ADDRESSES[@]}" ]; then
+        unset IPV4
+        declare -A IPV4
+        source bui-common verifyIPV4 ${ADDRESSES[0]}
+        [ -z "${IPV4[mask]}" ] && echo "you need to specify the netmask too: ${IPV4[ip]}/<0|8|16|24|32>" && exit 1
+        DEFAULT_NETWORK="${IPV4[netid]}"
+        NETMASK=${IPV4[mask]}
+        for d in ${DOMAINS[@]}; do
+            bui-cfgh addzone $d ${IPV4[ip]} $TTL $REFRESH $RETRY $EXPIRE $DEFAULT_NETWORK $NETMASK $RESPONSABLE $NEGATIVE_CACHE_TTL $R_RESPONSABLE
+        done
+        exit 0
+    fi
+
+    declare -A IPS
+    source bui-common get-ip
+
+    if [ ${IPS[last]} -eq 0 ]; then
+        IP="${IPS[${IPS[last]}]}"
+        d=${DOMAINS[0]}
+        unset IPV4
+        declare -A IPV4
+        source bui-common verifyIPV4 $IP
+        DEFAULT_NETWORK="${IPV4[netid]}"
+        NETMASK=${IPV4[mask]}
+        for d in ${DOMAINS[@]}; do
+            bui-cfgh addzone $d ${IPV4[ip]} $TTL $REFRESH $RETRY $EXPIRE $DEFAULT_NETWORK $NETMASK $RESPONSABLE $NEGATIVE_CACHE_TTL $R_RESPONSABLE
+        done
+        exit 0
+    fi
+
+    echo "Could not solve the Authority's network, beacause you have multiple IP addresses"
+    echo "This will be used for the record ns1 type A containing this servers ip"
+    echo "Also it is needed to calculate the reverse dns configuration, find out more on man bui"
+    echo "The DNS server should have it's own static IP and is that one which you need to select"
+    echo ""
+    for i in $(seq 0 ${IPS[last]}); do
+        echo "$i - IP: ${IPS[$i]} IFACE: ${IPS[$i;iface]}"
+    done
+    echo -n "your answer [ENTER]: "
+    read a
+    [ -z "$(grep -oE "^[0-9]+$" <<< "$a")" ] && echo "you provided a non numeric or negative answer, aborted" && exit 1
+    [ $a -gt ${IPS[last]} ] && echo "Your answer is not in range, aborted" && exit 1
+    unset IPV4
+    declare -A IPV4
+    source bui-common verifyIPV4 ${IPS[$a]}
+    
+    DEFAULT_NETWORK="${IPV4[netid]}"
+    NETMASK=${IPV4[mask]}
+    for d in ${DOMAINS[@]}; do
+        bui-cfgh addzone $d ${IPV4[ip]} $TTL $REFRESH $RETRY $EXPIRE $DEFAULT_NETWORK $NETMASK $RESPONSABLE $NEGATIVE_CACHE_TTL $R_RESPONSABLE
+    done
+    exit 0
+}
+
+function remove {
+    if [ ${#DOMAINS[@]} -gt 0 ]; then
+        for d in ${DOMAINS[@]}; do
+            echo "removing: $d"
+            bui-cfgh rzone $d
+        done
+    else
+        echo "No Authority zones specified, use -d <Authority zone>"
+        exit 1
+    fi
+}
+
 [ $# -eq 0 ] && op="printHelp"
 opts=""
 while [ $# -gt 0 ]; do
     case $1 in
 
         autoreverse|--autoreverse)
-            op=autoreverse
+            [ ! -z "$op" ] && echo "Can not specify two operations at once" && exit 1
+            [ -z "$op" ] && op=autoreverse
         ;;
 
         de-autoreverse|--de-autoreverse)
-            op=de-autoreverse
+            [ ! -z "$op" ] && echo "Can not specify two operations at once" && exit 1   
+            [ -z "$op" ] && op=de-autoreverse
         ;;
         
         --all)
@@ -187,6 +270,7 @@ while [ $# -gt 0 ]; do
         ;;
 
         auto|--auto|-a)
+            [ ! -z "$op" ] && echo "Can not specify two operations at once" && exit 1   
             [ -z "$op" ] && op="auto"
         ;;
 
@@ -200,12 +284,69 @@ while [ $# -gt 0 ]; do
             exit 0
         ;;
 
+        addzone|--addzone)
+            [ ! -z "$op" ] && echo "Can not specify two operations at once" && exit 1
+            [ -z "$op" ] && op=addzone
+        ;;
+
+        remove|--remove|-r)
+            [ ! -z "$op" ] && echo "Can not specify more than one operations" && exit
+            [ -z "$op" ] && op=remove
+        ;;
+
+        --ttl)
+            [ -z "$2" ] && echo "Expected number after $1" && exit 1
+            shift
+            TTL="$1"
+            isNaturalNumber $TTL TTL
+        ;;
+
+        --refresh)
+            [ -z "$2" ] && echo "Expected number after $1" && exit 1
+            shift
+            REFRESH="$1"
+            isNaturalNumber $REFRESH REFRESH
+        ;;
+
+        --retry)
+            [ -z "$2" ] && echo "Expected number after $1" && exit 1
+            shift
+            RETRY="$1"
+            isNaturalNumber $RETRY RETRY
+        ;;
+
+        --expire)
+            [ -z "$2" ] && echo "Expected number after $1" && exit 1
+            shift
+            EXPIRE="$1"
+            isNaturalNumber $EXPIRE EXPIRE
+        ;;
+
+        --responsable)
+            [ -z "$2" ] && echo "Expected word after $1" && exit 1
+            shift
+            RESPONSABLE="$1"
+        ;;
+
+        --r-responsable)
+            [ -z "$2" ] && echo "Expected word after $1" && exit 1
+            shift
+            R_RESPONSABLE="$1"
+        ;;
+
+        --negative-cache-ttl)
+            [ -z "$2" ] && echo "Expected number after $1" && exit 1
+            shift
+            NEGATIVE_CACHE_TTL="$1"
+            isNaturalNumber $NEGATIVE_CACHE_TTL "NEGATIVE CACHE TTL"
+        ;;
+
         *)
             opts="$opts "
         ;;
     esac
     shift
 done
-
+[ -z "$op" ] && echo "No option selected" && exit 1
 $op $opts
 exit 0
