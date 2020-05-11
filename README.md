@@ -43,18 +43,18 @@ Should work on any debian based distribution
 
 ### Debian and debian based
 #### Just bui-common package
-sudo apt update ; \\
-sudo apt install git -y ; \\
-git clone https://github.com/Reiikz/bui ; \\
-cd bui/bui-common ; \\
-make deb ; \\
+sudo apt update ; \\\
+sudo apt install git -y ; \\\
+git clone https://github.com/Reiikz/bui ; \\\
+cd bui/bui-common ; \\\
+make deb ; \\\
 sudo apt install -f $( realpath bui*.deb ) -y
 
 ### Other OS
 #### Just bui-common package
 ensure you have installed git and make then copy+paste the following on a terminal
-git clone https://github.com/Reiikz/bui ; \\
-cd bui/bui-common ; \\
+git clone https://github.com/Reiikz/bui ; \\\
+cd bui/bui-common ; \\\
 sudo make install
 
 #### removal
