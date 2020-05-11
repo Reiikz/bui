@@ -1,5 +1,5 @@
 ./" this is the man page for Bind User Interface - Common
-.TH bui-common "01/05/2020" "0.0.0" "bui-common man page"
+.TH bui-common "01/05/2020" "0.0.1" "bui-common man page"
 
 .SH NAME
 bui-common - low level command for bui and bui-cfgh
@@ -12,7 +12,9 @@ bui-common - low level command for bui and bui-cfgh
 .IP format|--format|-f
     If two arguments are provided it will try to gess what the user is trying to do.
     Possible gesses are: adding an A record, adding a PTR record, adding a CNAME record.
-    If three arguments are provided it will just indent the info
+    If three arguments are provided it will just add "IN" after the first argument and
+    indent all the arguments. The output of "bui-common format a b c d" would be
+    "a                              IN    b       c               d"
 
 .IP reverse-ip <ip> <netmask> [host|network]
     It will spit the reversed IP, if you specify nothing it will give you only the network id part
@@ -27,6 +29,7 @@ bui-common - low level command for bui and bui-cfgh
     The ip data will be saved as follows:
     ${IPV4[ip]} containing only the ip
     ${IPV4[mask]} containing only the netmassk
+    ${IPV4[netid]} containg the network id if the netmask was supplied
     ${IPV4[0]} containing only the field 1
     ${IPV4[1]} containing only the field 2
     ${IPV4[2]} containing only the field 3

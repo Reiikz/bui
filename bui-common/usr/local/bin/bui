@@ -3,6 +3,10 @@ VERSION=0.0.1
 CONFIG_FOLDER=/etc/bui
 ZONES=$CONFIG_FOLDER/zones.sh
 
+function quietVersion {
+    echo $VERSION
+}
+
 function printInfo {
     echo "bui command, version $VERSION"
     echo "Copyright (c) 2020"
@@ -12,7 +16,18 @@ function printInfo {
 
 function printHelp {
     echo "RTFM..."
-    echo "For help use man bui"
+    echo "use: man bui"
+    echo "Delete zone: bui remove -d com"
+    echo "Add zone: bui addzone -d com"
+    echo "Basic record manipulation: "
+    echo "  add A record:       bui auto -d example.com -IP 192.168.15.220"
+    echo "  add CNAME record:   bui auto -d example.com -d test.example.com"
+    echo "  add PTR record:     bui auto -IP 192.168.15.220 -d example.com"
+    echo "  delete all records matching \"*.example.com\": bui reset -d example.com --all"
+    echo "  delete literal \"example.com\"                 bui reset -d example.com"
+    echo "  generate reverses for all the records:       bui autoreverse -d com --cname"
+    echo "  delete all reverses for a zone:              bui de-autoreverse -d com --all"
+
 }
 
 function verifyExistance {
@@ -40,8 +55,6 @@ function verifyDomain {
 
 function auto {
     if [ "$FIRST" == "ADDRESS" ] && [ ! -z "${DOMAINS[@]}" ]; then
-        #[ ${#DOMAINS[@]} -gt 1 ] && echo "Error: specified more than 1 domain on reverse dns addition" && exit 1
-        #[ ${#ADDRESSES[@]} -gt 1 ] && echo "Error: specified more than 1 address on reverse dns addition" && exit 1
         addr="${ADDRESSES[0]}"
         d="${DOMAINS[0]}"
         unset ERR
@@ -68,6 +81,7 @@ function auto {
         export QUIET=1
         bui-cfgh addrecord $az "$(bui-common format $dwaz $addr)"
         unset QUIET
+        [ ! -z "$REVERSE" ] && bui autoreverse -d $d --cname
         exit 0
     fi
     if [ ${#DOMAINS[@]} -eq 2 ]; then
@@ -77,6 +91,7 @@ function auto {
         export QUIET=1
         bui-cfgh addrecord $az "$(bui-common format $dwaz ${DOMAINS[1]})"
         unset QUIET
+        [ ! -z "$REVERSE" ] && bui autoreverse -d $d --cname
         exit 0
     fi
     echo "Wrong usage of bui auto, use man bui" 
@@ -90,10 +105,11 @@ function reset {
         d="${DOMAINS[$i]}"
         verifyDomain $d
         [ -z "$exists" ] && echo "Authority zone $az does not exist, use bui -az -d <zone name> -IP <server ip> to create it" && exit 1
-        for i in $(seq 0 $((${zones[$az[records]]}-1)) ); do
-            r="${zones[;$i-$az]}"
+        [ -z "$REVERSE" ] && s=$((${zones[$az[records]]}-1)) || s=$((${zones[$az[r-records]]}-1))
+        for i in $(seq 0 $s ); do
+            [ -z "$REVERSE" ] && r="${zones[;$i-$az]}" || r="${zones[;r-$i-$az]}"
             if [ "$az" == "$d" ]; then
-                bui-cfgh rrecord $az "$r"
+                [ -z "$REVERSE" ] && bui-cfgh rrecord $az "$r" || bui-cfgh rr-record $az "$r"
             else
                 regex=$(sed -E "s/\./\\\./g" <<< $dwaz)
                 [ ! -z "$ALL" ] && [ "$(grep -oE "^.*\.{1}$regex\s+IN.*$" <<< $r )" != "" ] && bui-cfgh rrecord $az "$r"
@@ -102,50 +118,89 @@ function reset {
         done
     done
     [ "$az" == "$d" ] && bui-cfgh addrecord $az "${zones[$az[ns1]]}"
-    [ ! -z $ALL ] && resetReverse
     exit 0
 }
 
 function isThereDomains {
-    [ -z ${DOMAINS[@]} ] && echo "specify at least 1 domain to clear (-d example.com)" && exit 1
-}
-
-function resetReverse {
-    [ -z ${DOMAINS[@]} ] && echo "specify at least 1 domain to clear (-d example.com)" && exit 1
-    source $ZONES
-    for i in $(seq 0 $((${#DOMAINS[@]}-1)) ); do
-        d="${DOMAINS[$i]}"
-        source bui-common break-domain $d
-        az="${FIELDS[$LAST_FIELD]}"
-        for i in $(seq 0 $(($LAST_FIELD-1)) ); do [ ! -z $dwaz ] && dwaz="$dwaz.${FIELDS[$i]}" || dwaz="${FIELDS[$i]}"; done
-        unset exists
-        verifyExistance $az
-        [ -z "$exists" ] && echo "Authority zone $az does not exist, use bui -az -d <zone name> -IP <server ip> to create it" && exit 1
-        for i in $(seq 0 $((${zones[$az[r-records]]}-1)) ); do
-            r="${zones[;r-$i-$az]}"
-            if [ "$az" == "$d" ]; then
-                bui-cfgh rr-record $az "$r"
-            else
-                regex=$(sed -E "s/\./\\\./g" <<< $dwaz)
-                [ "$(grep -oE "^.*\.{1}$regex\s+IN.*$" <<< $r )" != "" ] && bui-cfgh rr-record $az "$r"
-                [ "$(grep -oE "^$regex\s+IN.*$" <<< $r )" != "" ] && bui-cfgh rr-record $az "$r"
-            fi
-        done
-    done
-    exit 0
+    [ ${#DOMAINS[@]} -eq 0 ] && echo "specify at least 1 domain (-d <domain>)" && exit 1
 }
 
 function autoreverse {
+    source $ZONES
     isThereDomains
     for d in ${DOMAINS[@]}; do
-        bui-cfgh autoreverse $d
+        verifyDomain $d
+        unset same
+        for z in ${zl[@]}; do
+            [ "$z" == "$d" ] && same=1 && break
+        done
+        if [ -z "$same" ]; then
+            regex="$(sed -E "s/\./\\\./g" <<< $dwaz)"
+            for i in $(seq 0 $((${zones[$az[records]]}-1)) ); do
+                r="${zones[;$i-$az]}"
+                [ -z "$ALL" ] && [ -z "$(grep -oE "^$regex .+$" <<< $r)" ] && continue
+                [ ! -z "$ALL" ] && [ -z "$(grep -oE "^.*\.{0,1}$regex .+$" <<< $r)" ] && continue
+                type=$(bui-common parse-record type $r)
+                name=$(bui-common parse-record name $r)
+                target=$(bui-common parse-record target $r)
+                
+                if [ "$type" == "A" ]; then
+                    export QUIET=1
+                    bui-cfgh addr-record $az "$(bui-common format $target $name.$az)"
+                    unset QUIET
+                    continue
+                fi
+
+                [ "$type" == "CNAME" ] && [ -z "$MAP_CNAME" ] && echo "$name is $type, it'll be ignored, to include $type use --cname"
+                
+                if [ "$type" == "CNAME" ] && ( [ ! -z "$MAP_CNAME" ] ); then
+                    c=18
+                    ip=$(echo $(host $target localhost) | cut -d ' ' -f$c)
+                    declare -A IPV4
+                    unset ERR
+                    source bui-common verifyIPV4 $ip
+                    if [ ! -z "$ERR" ]; then
+                        ip=$(echo $(host $target localhost) | cut -d ' ' -f12)
+                        unset ERR
+                        source bui-common verifyIPV4 $ip
+                    fi
+                    while [ "$ip" != "" ] && [ ! -z "$ERR" ]; do
+                        unset ERR
+                        c=$(($c+6))
+                        ip=$(echo $(host $target localhost) | cut -d ' ' -f$c)
+                        source bui-common verifyIPV4 $ip
+                    done
+                    export QUIET=1
+                    bui-cfgh addr-record $az "$(bui-common format $ip $name.$az)"
+                    unset QUIET
+                fi
+            done
+        else
+            [ -z "$MAP_CNAME" ] && bui-cfgh autoreverse $d no || bui-cfgh autoreverse $d map
+        fi
     done
 }
 
 function de-autoreverse {
+    source $ZONES
     isThereDomains
     for d in ${DOMAINS[@]}; do
-        bui-cfgh de-autoreverse $d
+        verifyDomain $d
+        unset same
+        for z in ${zl[@]}; do
+            [ "$z" == "$d" ] && same=1 && break
+        done
+        if [ -z "$same" ]; then
+            for i in $(seq 0 $((${zones[$az[r-records]]}-1))); do
+                r="${zones[;r-$i-$az]}"
+                [ -z "$ALL" ] && [ -z "$(grep -oE "^.* $d\.$" <<< "$r")" ] && continue
+                [ ! -z "$ALL" ] && [ -z "$(grep -oE "^.*$d\.$" <<< "$r")" ] && continue
+                bui-cfgh rr-record $az "$r"
+            done
+        else
+            [ ! -z "$ALL" ] && bui-cfgh de-autoreverse $d
+            [ -z "$ALL" ] && echo "If you want to delete all reverses add the --all option for $d"
+        fi
     done
 }
 
@@ -172,7 +227,7 @@ function addzone {
         DEFAULT_NETWORK="${IPV4[netid]}"
         NETMASK=${IPV4[mask]}
         for d in ${DOMAINS[@]}; do
-            bui-cfgh addzone $d ${IPV4[ip]} $TTL $REFRESH $RETRY $EXPIRE $DEFAULT_NETWORK $NETMASK $RESPONSABLE $NEGATIVE_CACHE_TTL $R_RESPONSABLE
+            bui-cfgh addzone $d ${IPV4[ip]} $TTL $REFRESH $RETRY $EXPIRE "$DEFAULT_NETWORK" $NETMASK $RESPONSABLE $NEGATIVE_CACHE_TTL $R_RESPONSABLE
         done
         exit 0
     fi
@@ -230,7 +285,121 @@ function remove {
     fi
 }
 
-[ $# -eq 0 ] && op="printHelp"
+function databaseConfig {
+    isThereDomains
+    source $ZONES
+    for zz in ${DOMAINS[@]}; do
+        unset exists
+        for z in ${zl[@]}; do
+            [ "$z" == "$zz" ] && exists=1
+        done
+        if [ -z "$exists" ]; then
+            echo "$zz does not exist skiping.."
+        else
+            [ -z "$TTL" ] && TTL="${zones[$zz[ttl]]}"
+            [ -z "$REFRESH" ] && REFRESH="${zones[$zz[refresh]]}"
+            [ -z "$RETRY" ] && RETRY="${zones[$zz[retry]]}"
+            [ -z "$EXPIRE" ] && EXPIRE="${zones[$zz[expire]]}"
+            [ -z "$RESPONSABLE" ] && RESPONSABLE="${zones[$zz[responsable]]}"
+            [ -z "$NEGATIVE_CACHE_TTL" ] && NEGATIVE_CACHE_TTL="${zones[$zz[ncttl]]}"
+            [ -z "$REVERSE" ] && bui-cfgh header $zz $TTL $REFRESH $RETRY $EXPIRE $RESPONSABLE $NEGATIVE_CACHE_TTL || \
+                                 bui-cfgh header $zz $TTL $REFRESH $RETRY $EXPIRE $RESPONSABLE $NEGATIVE_CACHE_TTL r
+        fi
+    done
+}
+
+function addrecord {
+    isThereDomains
+    [ ${#DOMAINS[@]} -gt 1 ] && echo "Can not supply more than one domain"
+    d=${DOMAINS[0]}
+    [ -z "$(grep -oE "^[A-Za-z0-9.-]+\.[A-Za-Z]+$" <<< $d)" ] && echo "Domain is not valid" && exit 1
+    [ -z "$RECORD_TYPE" ] && echo "Missing record type use: -T <THE_TYPE_HERE>" && exit 1
+    [ -z "$DATA" ] && echo "Missing Domain target use: -D all the data here" && exit 1
+    verifyDomain "$d" NO_VERIFICATION
+    record="$(bui-common format $dwaz $RECORD_TYPE $DATA)"
+    bui-cfgh addrecord $az "$record"
+}
+
+function overview {
+    source $ZONES
+    if [ -z "$MACHINE" ]; then
+        echo "There are ${#zl[@]} Zones"
+        for z in ${zl[@]}; do
+            echo "$z, with: ${zones[$z[records]]} records and ${zones[$z[records]]} reverse reocrds"
+            echo "   Network is: ${zones[$z[network]]}"
+            echo ""
+        done
+    else
+        echo no implemented yet...
+    fi
+}
+
+function listRecords {
+    source $ZONES
+    if [ -z ${DOMAINS[@]} ]; then
+        for z in ${zl[@]}; do
+            echo "Showing all records for: $z"
+            echo ""
+            [ -z "$REVERSE" ] && s=$((${zones[$z[records]]}-1)) || s=$((${zones[$z[r-records]]}-1))
+            for i in $(seq 0 $s); do
+                [ -z "$REVERSE" ] && r=${zones[;$i-$z]} || r=${zones[;r-$i-$z]}
+                [ -z "$REVERSE" ] && name=$(bui-common parse-record name $r).$z || name=$(sed -E "s/\.$//g" <<< $(bui-common parse-record target $r) )
+                type=$(bui-common parse-record type $r)
+                type=$(bui-common parse-record type $r)
+                echo "$name type: $type"
+                echo "   -    $r"
+                echo "."
+            done
+            echo "--------------------******"
+            echo ""
+        done
+    else
+        for d in ${DOMAINS[@]}; do
+            for z in ${zl[@]}; do
+                if [ "$z" == "$d" ]; then
+                    echo "Showing all records for: $z"
+                    echo ""
+                    [ -z "$REVERSE" ] && s=$((${zones[$z[records]]}-1)) || s=$((${zones[$z[r-records]]}-1))
+                    for i in $(seq 0 $s ); do
+                        [ -z "$REVERSE" ] && r=${zones[;$i-$z]} || r=${zones[;r-$i-$z]}
+                        [ -z "$REVERSE" ] && name=$(bui-common parse-record name $r) || name=$(bui-common parse-record target $r)
+                        type=$(bui-common parse-record type $r)
+                        [ -z "$REVERSE" ] && echo "$name.$z type: $type" || echo "$(sed -E "s/\.$//g" <<< $name) type: $type"
+                        echo "   -    $r"
+                        echo "."
+                    done
+                    skip=1
+                    break
+                fi
+            done
+            if [ -z "$skip" ] ; then
+                verifyDomain $d
+                for z in ${zl[@]}; do
+                    if [ "$az" == "$z" ]; then
+                        [ -z "$REVERSE" ] && s=$((${zones[$z[records]]}-1)) || s=$((${zones[$z[r-records]]}-1))
+                        for i in $(seq 0 $s ); do
+                            if [ -z "$REVERSE" ]; then
+                                [ -z "$(grep -oE "^[A-Za-z.-]*$dwaz.*$" <<< "${zones[;$i-$z]}")" ] && continue
+                                r=${zones[;$i-$z]}
+                            else
+                                [ -z "$(grep -oE "^.+$d\.$" <<< ${zones[;r-$i-$z]})" ] && continue
+                                r=${zones[;r-$i-$z]}
+                            fi
+                            [ -z "$REVERSE" ] && name=$(bui-common parse-record name $r) || name=$(sed -E "s/\.$//g" <<< $(bui-common parse-record target $r) )
+                            type=$(bui-common parse-record type $r)
+                            echo "$name type: $type"
+                            echo "   -    $r"
+                            echo "."
+                        done
+                    fi
+                done
+            fi
+            unset skip
+        done
+    fi
+}
+
+[ $# -eq 0 ] && op="overview"
 opts=""
 while [ $# -gt 0 ]; do
     case $1 in
@@ -246,7 +415,7 @@ while [ $# -gt 0 ]; do
         ;;
         
         --all)
-            ALL=1
+            [ -z "$ALL" ] && ALL=1 || ALL=$(($ALL+1))
         ;;
 
         --reset|reset)
@@ -274,6 +443,11 @@ while [ $# -gt 0 ]; do
             [ -z "$op" ] && op="auto"
         ;;
 
+        addrecord)
+            [ ! -z "$op" ] && echo "Can not specify two operations at once" && exit 1
+            [ -z "$op" ] && op=addrecord
+        ;;
+
         h|-h|--help|-help|help)
             printHelp
             exit 0
@@ -284,14 +458,57 @@ while [ $# -gt 0 ]; do
             exit 0
         ;;
 
+        -vq)
+            quietVersion
+            exit 0
+        ;;
+
         addzone|--addzone)
             [ ! -z "$op" ] && echo "Can not specify two operations at once" && exit 1
             [ -z "$op" ] && op=addzone
         ;;
 
-        remove|--remove|-r)
-            [ ! -z "$op" ] && echo "Can not specify more than one operations" && exit
+        remove|--remove)
+            [ ! -z "$op" ] && echo "Can not specify more than one operations" && exit 1
             [ -z "$op" ] && op=remove
+        ;;
+
+        database-config|--database-config|db-config|--db-config)
+            [ ! -z "$op" ] && echo "Can not specify more than one operations" && exit 1
+            [ -z "$op" ] && op=databaseConfig
+        ;;
+
+        -T|--type)
+            [ -z $2 ] && echo "Expected DNS record type after $1"
+            RECORD_TYPE=$2
+            shift
+        ;;
+
+        -D|--data)
+            [ -z $2 ] && echo "Expected DNS target after $1"
+            shift
+            while [ $# -gt 0 ]; do
+                DATA="$DATA $1"
+                shift
+            done
+        ;;
+
+        --no-check)
+            export NO_VERIFICATION=1
+        ;;
+
+        --machine)
+            MACHINE=1
+        ;;
+
+        --list|-L)
+            [ ! -z "$op" ] && echo "Can not specify more than one operations" && exit 1
+            op=listRecords
+        ;;
+
+        -l)
+            [ ! -z "$op" ] && echo "Can not specify more than one operations" && exit 1
+            op=overview
         ;;
 
         --ttl)
@@ -328,17 +545,19 @@ while [ $# -gt 0 ]; do
             RESPONSABLE="$1"
         ;;
 
-        --r-responsable)
-            [ -z "$2" ] && echo "Expected word after $1" && exit 1
-            shift
-            R_RESPONSABLE="$1"
-        ;;
-
         --negative-cache-ttl)
             [ -z "$2" ] && echo "Expected number after $1" && exit 1
             shift
             NEGATIVE_CACHE_TTL="$1"
             isNaturalNumber $NEGATIVE_CACHE_TTL "NEGATIVE CACHE TTL"
+        ;;
+
+        --cname)
+            MAP_CNAME=1
+        ;;
+
+        --reverse)
+            REVERSE=1
         ;;
 
         *)
@@ -347,6 +566,6 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-[ -z "$op" ] && echo "No option selected" && exit 1
+[ -z "$op" ] && echo "No option selected" && exit 0
 $op $opts
 exit 0

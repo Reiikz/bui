@@ -1,0 +1,94 @@
+./" this is the man page for Bind User Interface
+.TH bui "10/05/2020" "0.0.1" "bui-common man page"
+
+.SH NAME
+bui - Bind User Interface configure bind9 without dealing with config files
+
+.SH DESCRIPTION
+    This commandline tool helps you configure bind9 without dealing with it's configuration files.
+    You can add, remove, autogenerate records, for a guiven authority zone, you can also add and remove authority zones on the fly, and the script will take care of reloading the database.
+
+.SH OPTIONS
+
+.IP --all
+    When combined with reset, autoreverse and de-autoreverse will cause to match any sub level domain passed through -d
+
+.IP --cname
+    When combiend with autoreverse will cause to also map reverse resolution for CNAME records, use with caution or you will end up with invalid records
+
+.IP 
+
+.SH COMMANDS
+
+.IP addzone|--addzone
+    This command requires you to pass -d <domain> optionally -IP <IPV4>/<netmask>
+    If you don't specify -IP <IPV4>/<netmask> the program will autoload all the current IPs and if it sees more than 1 it will ask you to select one as the DNS server's IP, this is required for the ns1 record and detecting the net id for the reverse DNS resolution.
+    example:
+        bui addzone -d com -IP 192.168.0.2/24
+    or
+        bui addzone -d com # beaware this will cause the script to spect user input in case there's more than one IP
+
+.IP remove|--remvove
+    This command requires you to pass -d <domain>
+    This will remove an authority zone
+    example:
+        bui remove -d com
+
+.IP auto|--auto|-a
+    This command is input order dependant.
+    requires two parameters, -d <domain> [optional] -IP <IPV4>
+    If you pass the domain first ti will generate and add an A record, if you pass the IP first it will generate and add A PTR record, if you pass a domain twice it will add a CNAME record
+    example:
+        bui auto -d example.com -IP 192.168.0.66
+            will generate an A record example.com which points to the IP 192.168.0.66
+        bui auto -IP 192.168.0.66 -d example.com
+            will generate a PTR record for the IP 192.168.0.66 which points to example.com
+        bui auto -d ex.com -d example.com
+            will generate a CNAME record ex.com which points to example.com
+    For this to work the top level domain has to exist, in this case "com" is our First level authority zone, to see how to add it to your DNS server check the command addzone
+
+.IP autoreverse|--autoreverse
+    This command requires you to pass -d <domain>
+    This command auto-generates the reverse resolution for both A and CNAME records.
+    by default it does not auto generate the reverse record for CNAME records for this to be true you have to pass the option --cname
+    If you pass x level domain that is not the first one it will only reverse that one, if you also say --all it will reverse all x-1 level domains
+    example:
+    I have the following records
+        server      A       192.168.66.8
+        sv          CNAME   server.com.
+        example     A       192.168.66.9
+        ex          CNAME   example.com.
+        sub.ex      A       192.168.66.10
+        c.sub.ex    CNAME   sub.ex.com.
+    If I run:
+    bui autoreverse -d com --all or bui autoreverse -d com
+        reverses only server.com, example.com, and sub.ex.com
+    bui autoreverse -d com --cname
+        reverses all the records
+    bui autoreverse -d ex.com --cname --all
+        reverses ex.com, sub.ex.com and c.sub.ex.com
+    bui autoreverse -d ex.com --all
+        reverses sub.ex.com
+
+.IP de-autoreverse|--de-autoreverse
+    This command requires you to pass -d <domain>
+    This command removes the reverse resolution.
+    If you pass x level domain that is not the first one it will only remove that one, if you also say --all it will reverse all x-1 level domains
+    example:
+    I have the following records
+        192.168.66.8  PTR    server.com.
+        192.168.66.8  PTR    sv.com.
+        192.168.66.9  PTR    example.com.
+        192.168.66.9  PTR    ex.com.
+        192.168.66.10 PTR    sub.ex.com.
+        192.168.66.10 PTR    c.sub.ex.com.
+    If I run:
+    bui de-autoreverse -d com --all
+        removes all records
+    bui de-autoreverse -d ex.com
+        removes only ex.com
+    bui de-autoreverse -d ex.com --all
+        removes ex.com, sub.ex.com and c.sub.ex.com
+
+.IP --version|-version
+    Prints the version of this program

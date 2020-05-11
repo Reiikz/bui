@@ -4,7 +4,7 @@
 ## About this program
 
 ### Who this program is for
-this is a program for making the life of those who have home labs with no fancy equipment or dedicated net service boxes easier, so you can configure and change arround a local DNS without worring about reloading the service to get it to take effect inmediatly, or just want to install a ton of local web services nad just don't wanna mess arround with the complicated configuration of a DNS server.
+this is a program for making the life of those who have home labs with no fancy equipment or dedicated net service boxes easier, so you can configure and change arround a local DNS without worring about reloading the service to get it to take effect inmediatly, or just want to install a ton of local web services and just don't wanna mess arround with the complicated configuration of a DNS server.
 
 ### Features:
 - support for A, PTR, CNAME records
@@ -27,7 +27,7 @@ this is a program for making the life of those who have home labs with no fancy 
 - All architectures since it's all bash scripts
 - works with bash associative arrays so it is easy to understand and modify
 
-#### Disadvantages:
+### Disadvantages:
 - Duplicates DNS database information as well as settings
 - Slow for large databases.
 - Rewrites files on removal operations
@@ -35,7 +35,7 @@ this is a program for making the life of those who have home labs with no fancy 
 - works with bash associative arrays so it is not space efficient
 
 
-#### Tested on:
+### Tested on:
 - Debian Buster
 Should work on any debian based distribution
 
@@ -43,18 +43,18 @@ Should work on any debian based distribution
 
 ### Debian and debian based
 #### Just bui-common package
-sudo apt update ; \
-sudo apt install git -y ; \
-git clone https://github.com/Reiikz/bui ; \
-cd bui/bui-common ; \
-make deb ; \
+sudo apt update ; \\
+sudo apt install git -y ; \\
+git clone https://github.com/Reiikz/bui ; \\
+cd bui/bui-common ; \\
+make deb ; \\
 sudo apt install -f $( realpath bui*.deb ) -y
 
 ### Other OS
 #### Just bui-common package
 ensure you have installed git and make then copy+paste the following on a terminal
-git clone https://github.com/Reiikz/bui ; \
-cd bui/bui-common ; \
+git clone https://github.com/Reiikz/bui ; \\
+cd bui/bui-common ; \\
 sudo make install
 
 #### removal

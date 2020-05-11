@@ -1,17 +1,19 @@
 ./" this is the man page for Bind User Interface - Configuration Handler
-.TH bui-cfgh "01/05/2020" "0.0.0" "bui-cfgh man page"
+.TH bui-cfgh "01/05/2020" "0.0.1" "bui-cfgh man page"
 
 .SH NAME
 bui-cfgh - low level command for handleing bind9 configuration
 
 .SH DESCRIPTION
-    This is a low level command you should not be using this, use man bui
+    This is a low level command you should not be using this, use man bui.
+    Beawre that every configuration change, record addition or deletion
+    will trigger a "systemctl reload bind9"
 
 .SH COMMANDS
 
 .IP addzone
     As the name sugests it adds an authority zone.
-    This option expects the folloing data on the extact same order
+    This option expects the following data on the exact same order
     <zone name> <dns server ip> <TTL> <refresh> <retry> <expire> <network> <netmask> <responsable> <negative cache ttl>
     the only required data are zone name and dns server ip, the rest are optional (the script will use default data if missing)
     network refers to the network id of the authority zone, it is used to handle the reverse DNS.
@@ -54,6 +56,14 @@ bui-cfgh - low level command for handleing bind9 configuration
     This command will remove all reverse records for a given zone.
     use: de-autoreverse <zone>
     example: de-autoreverse com # will remvoe all reverse records from com
+
+.IP header
+    This command helps you change the database configuration, beawre that it
+    expects the followig data in the exact same order
+    <authority zone name> <TTL> <REFRESH> <RETRY> <EXPIRE> <RESPONSABLE> <NEGATIVE_CACHE_TTL>
+    optionally you can pass a character or word at the end to tell it to configure the corresponding
+    reverse database, for example:
+    bui-cfgh header com 604800 604800 86400 2419200 root 604800 r
 
 .SH FILES
 

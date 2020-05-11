@@ -1,1 +1,26 @@
 #!/bin/bash
+if [ "$(whoami)" != "root" ] && [ -z "$SUDO_COMMAND" ]; then
+    echo "you need root to test the program"
+    exit 1
+fi
+
+function loadSampleData {
+    bui remove -d lan
+    bui addzone -d lan -IP 192.168.15.25/24
+    bui auto -d server.lan -IP 192.168.15.220
+    bui auto -d cool-service.lan -d server.lan
+    bui auto -d sub.cool-service.lan -d server.lan
+    bui auto -d sub.cname.cool-service.lan -d cool-service.lan
+    bui addrecord -d mail.cool-service.lan -T MX --no-check -D 0 cool-service.lan
+    bui autoreverse -d lan
+}
+
+while [ $# -gt 0 ]; do
+    case $1 in
+        sample)
+            loadSampleData
+            exit 0
+        ;;
+    esac
+    shift
+done

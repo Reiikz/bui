@@ -9,6 +9,7 @@ SAMPLE_DATABASE=$CONFIG_FOLDER/zone-db.sample
 NAMED_LOCAL=/etc/bind/named.conf.local
 DB_FOLDER=/etc/bind/zones
 RESOLV=/etc/resolv.conf
+SERVICE_NAME=bind9
 
 function configHeader {
     printf "#!/bin/bash\ndeclare -A zones\ndeclare -A zl\n" > $ZONES
@@ -180,7 +181,7 @@ case $1 in
         for i in $(seq 0 $((${zones[$1[r-records]]}-1))); do
             bui-cfgh rr-record $1 "${zones[;r-$i-$1]}"
         done
-        systemctl reload bind9
+        systemctl reload $SERVICE_NAME
         exit 0
     ;;
 
@@ -226,7 +227,7 @@ case $1 in
             fi
 
         done
-        systemctl reload bind9
+        systemctl reload $SERVICE_NAME
         exit 0
 
     ;;
@@ -251,7 +252,7 @@ case $1 in
         echo "$(sed -E "/^$record$/d" $db_file)" > $db_file
         unset r
         incrementSerial $db_file
-        systemctl reload bind9
+        systemctl reload $SERVICE_NAME
         save
         exit 0
     ;;
@@ -266,7 +267,7 @@ case $1 in
         shift
         while [ $# -gt 0 ]; do [ -z "$record" ] && record="$1" || record="$record $1"; shift; done
         [ -z "$record" ] && echo "Missing dns record to add" && exit 1
-        ! bui-common verify "$record" && echo "invalid record: $record" && exit 1
+        [ -z "$NO_VERIFICATION" ] && ! bui-common verify "$record" && echo "invalid record: $record" && exit 1
         echo "Adding record: $record ; to: $NAME"
         r=${zones[$NAME[r-records]]}
         for i in $(seq 0 $(($r-1))); do
@@ -278,7 +279,7 @@ case $1 in
         [ ! -z "$(grep -x "$record" $db_file)" ] && echo "Record: $record ; already exists in database" || echo "$record" >> $db_file
         unset r
         incrementSerial $db_file
-        systemctl reload bind9
+        systemctl reload $SERVICE_NAME
         save
         exit 0
     ;;
@@ -303,7 +304,7 @@ case $1 in
         echo "$(sed -E "/^$record$/d" $db_file)" > $db_file
         unset r
         incrementSerial $db_file
-        systemctl reload bind9
+        systemctl reload $SERVICE_NAME
         save
         exit 0
     ;;
@@ -318,7 +319,7 @@ case $1 in
         shift
         while [ $# -gt 0 ]; do [ -z "$record" ] && record="$1" || record="$record $1"; shift; done
         [ -z "$record" ] && echo "Missing dns record to add" && exit 1
-        ! bui-common verify "$record" && echo "invalid record: $record" && exit 1
+        [ -z "$NO_VERIFICATION" ] && ! bui-common verify "$record" && echo "invalid record: $record" && exit 1
         echo "Adding record: $record ; to: $NAME"
         r=${zones[$NAME[records]]}
         for i in $(seq 0 $(($r-1))); do
@@ -330,7 +331,7 @@ case $1 in
         [ ! -z "$(grep -x "$record" $db_file)" ] && echo "Record: $record ; already exists in database" || echo "$record" >> $db_file
         unset r
         incrementSerial $db_file
-        systemctl reload bind9
+        systemctl reload $SERVICE_NAME
         save
         exit 0
     ;;
@@ -362,7 +363,7 @@ case $1 in
             fi
         fi
         sed  -E "/^search $NAME$/d" $RESOLV > $RESOLV
-        systemctl reload bind9
+        systemctl reload $SERVICE_NAME
         save
         exit 0
     ;;
@@ -375,33 +376,29 @@ case $1 in
             [ "$z" == "$NAME" ] && exists=1 && break
         done
         [ -z "$exists" ] && echo "zone $NAME does not exist" && exit 1
-
-        [ -z $2 ] && echo "Missing server ip" && exit 1 || zones[$NAME[network]]="$2"
-        [ -z $3 ] && echo "Missing TTL" && exit 1 || zones[$NAME[ttl]]="$2"
-        [ -z $4 ] && echo "Missing REFRESH" && exit 1 || zones[$NAME[refresh]]="$3"
-        [ -z $5 ] && echo "Missing RETRY" && exit 1 || zones[$NAME[retry]]="$4"
-        [ -z $6 ] && echo "Missing EXPIRE" && exit 1 || zones[$NAME[expire]]="$5"
-        [ -z $7 ] && echo "Missing NETWORK" && exit 1 || zones[$NAME[network]]="$6"
-        [ -z $8 ] && echo "Missing NETMASK" && exit 1 || zones[$NAME[netmask]]="$7"
-        [ -z $9 ] && echo "Missing RESPONSABLE" && exit 1 || zones[$NAME[responsable]]="$8"
-        shift
-        [ -z $9 ] && echo "Missing NEGATIVE CACHE TTL" && exit 1 || zones[$NAME[ncttl]]="$9"
-        shift
-        [ -z $9 ] && echo "Missing REVERSE RESPONSABLE" && exit 1 || zones[$NAME[r-responsable]]="$9"
-        writeDatabaseHeader $NAME
+        [ -z $2 ] && echo "Missing TTL" && exit 1 || zones[$NAME[ttl]]="$2"
+        [ -z $3 ] && echo "Missing REFRESH" && exit 1 || zones[$NAME[refresh]]="$3"
+        [ -z $4 ] && echo "Missing RETRY" && exit 1 || zones[$NAME[retry]]="$4"
+        [ -z $5 ] && echo "Missing EXPIRE" && exit 1 || zones[$NAME[expire]]="$5"
+        [ -z $6 ] && echo "Missing RESPONSABLE" && exit 1 || zones[$NAME[responsable]]="$6"
+        [ -z $7 ] && echo "Missing NEGATIVE CACHE TTL" && exit 1 || zones[$NAME[ncttl]]="$7"
+        [ -z "$8" ] && writeDatabaseHeader $NAME
+        [ ! -z "$8" ] && zones[$NAME[r-responsable]]="$6"
+        [ ! -z "$8" ] && writeDatabaseHeader $NAME ${zones[$NAME[r-config]]}
+        systemctl reload $SERVICE_NAME
     ;;
 
     addzone)
         shift
         [ -z $1 ] && echo "Missing zone name" && exit 1 || NAME="$1"
         [ -z $2 ] && echo "Missing server ip" && exit 1 || IP="$2"
-        [ -z $3 ] && TTL="$(echo "$(bui-default ttl)")" || TTL="$2"
-        [ -z $4 ] && REFRESH="$(echo "$(bui-default refresh)")" || REFRESH="$3"
-        [ -z $5 ] && RETRY="$(echo "$(bui-default retry)")" || RETRY="$4"
-        [ -z $6 ] && EXPIRE="$(echo "$(bui-default expire)")" || EXPIRE="$5"
-        [ -z $7 ] && NETWORK="$(echo "$(bui-default network)")" || NETWORK="$6"
-        [ -z $8 ] && NETMASK="$(echo "$(bui-default netmask)" )" || NETMASK="$7"
-        [ -z $9 ] && RESPONSABLE="$(echo "$(bui-default responsable)" )" || RESPONSABLE="$8"
+        [ -z $3 ] && TTL="$(echo "$(bui-default ttl)")" || TTL="$3"
+        [ -z $4 ] && REFRESH="$(echo "$(bui-default refresh)")" || REFRESH="$4"
+        [ -z $5 ] && RETRY="$(echo "$(bui-default retry)")" || RETRY="$5"
+        [ -z $6 ] && EXPIRE="$(echo "$(bui-default expire)")" || EXPIRE="$6"
+        [ -z $7 ] && NETWORK="$(echo "$(bui-default network)")" || NETWORK="$7"
+        [ -z $8 ] && NETMASK="$(echo "$(bui-default netmask)" )" || NETMASK="$8"
+        [ -z $9 ] && RESPONSABLE="$(echo "$(bui-default responsable)" )" || RESPONSABLE="$9"
         shift
         [ -z $9 ] && NEGATIVE_CACHE_TTL="$(echo "$(bui-default ncttl)" )" || NEGATIVE_CACHE_TTL="$9"
         shift
@@ -409,16 +406,17 @@ case $1 in
         for zone in ${zl[@]}; do
             [ "$zone" == "$NAME" ] && echo "Zone $NAME already exists" && exit 1
         done
+        NETWORK_="$NETWORK"
         declare -A IPV4
         source bui-common verifyIPV4 $IP
         [ ! -z $ERR ] && echo "$IP is not a valid ip: $ERR" && exit
         unset IPV4
         echo "adding zone: $NAME, server IP: $IP, ttl: $TTL, refresh: $REFRESH, retry: $RETRY, expire: $EXPIRE"
-        echo "network: $NETWORK/$NETMASK, responsable: $RESPONSABLE, negative cache ttl: $NEGATIVE_CACHE_TTL, reverse responsable: $R_RESPONSABLE"
+        echo "network: $NETWORK_/$NETMASK, responsable: $RESPONSABLE, negative cache ttl: $NEGATIVE_CACHE_TTL, reverse responsable: $R_RESPONSABLE"
         zl[${#zl[@]}]="$NAME"
         
         #incrementSerial $DB_FOLDER/$NAME.db
-        zones[$NAME[network]]="$NETWORK"
+        zones[$NAME[network]]="$NETWORK_"
         zones[$NAME[ttl]]="$TTL"
         zones[$NAME[ncttl]]="$NEGATIVE_CACHE_TTL"
         zones[$NAME[refresh]]="$REFRESH"
@@ -457,9 +455,6 @@ case $1 in
         bui-cfgh autoreverse $NAME no
 
         exit 0
-        
-        #incrementSerial $DB_FOLDER/$NAME.db
-        #systemctl reload bind9
     ;;
 
     *)
