@@ -43,6 +43,7 @@ Should work on any debian based distribution
 
 ### Debian and debian based
 #### Just bui-common package
+
 sudo apt update ; \\\
 sudo apt install git -y ; \\\
 git clone https://github.com/Reiikz/bui ; \\\
@@ -52,10 +53,14 @@ sudo apt install -f $( realpath bui*.deb ) -y
 
 ### Other OS
 #### Just bui-common package
-ensure you have installed git and make then copy+paste the following on a terminal
+
+ensure you have installed git and make then copy+paste the following on a terminal.
+
+
+
 git clone https://github.com/Reiikz/bui ; \\\
 cd bui/bui-common ; \\\
-sudo make install
+sudo make install 
 
 #### removal
 to remove it when installed using make install use make uninstall
